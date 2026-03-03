@@ -550,15 +550,22 @@ static void gen_stmt(CodegenCtx *ctx, Stmt *s) {
 /* ── Declaration codegen ───────────────────────────── */
 
 static void gen_function(Compiler *c, Decl *d) {
-    Function fn;
-    memset(&fn, 0, sizeof(fn));
-    fn.name = d->fn_name;
-    fn.name_len = d->fn_name_len;
-    fn.param_count = d->param_count;
-    chunk_init(&fn.chunk);
-
-    /* Reserve slot in module first so recursive calls can find it */
-    int fi = module_add_function(&c->module, fn);
+    /* Find pre-registered slot (from first pass) */
+    int fi = find_function(c, d->fn_name, d->fn_name_len);
+    if (fi < 0) {
+        /* Fallback: add new (shouldn't happen with pre-registration) */
+        Function fn;
+        memset(&fn, 0, sizeof(fn));
+        fn.name = d->fn_name;
+        fn.name_len = d->fn_name_len;
+        fn.param_count = d->param_count;
+        chunk_init(&fn.chunk);
+        fi = module_add_function(&c->module, fn);
+    } else {
+        /* Re-init chunk for actual compilation */
+        chunk_free(&c->module.functions[fi].chunk);
+        chunk_init(&c->module.functions[fi].chunk);
+    }
 
     CodegenCtx ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -599,11 +606,28 @@ int compiler_compile(Compiler *c, Program *prog) {
     /* First pass: register all function names so forward calls work */
     for (int i = 0; i < prog->decl_count; i++) {
         if (prog->decls[i]->kind == DECL_FN) {
-            /* Pre-register: actual compilation in second pass */
+            Decl *d = prog->decls[i];
+            Function placeholder;
+            memset(&placeholder, 0, sizeof(placeholder));
+            placeholder.name = d->fn_name;
+            placeholder.name_len = d->fn_name_len;
+            placeholder.param_count = d->param_count;
+            chunk_init(&placeholder.chunk);
+            module_add_function(&c->module, placeholder);
+        }
+    }
+
+    /* Pre-register global variable names so codegen can resolve them */
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == DECL_VAR) {
+            module_add_name(&c->module,
+                            prog->decls[i]->gv_name,
+                            prog->decls[i]->gv_name_len);
         }
     }
 
     /* Compile each declaration */
+    int has_globals = 0;
     for (int i = 0; i < prog->decl_count; i++) {
         Decl *d = prog->decls[i];
         switch (d->kind) {
@@ -613,9 +637,50 @@ int compiler_compile(Compiler *c, Program *prog) {
         case DECL_STRUCT:
             /* Struct layout tracked but no bytecode emitted */
             break;
+        case DECL_VAR:
+            has_globals = 1;
+            break;
         }
 
         if (c->had_error) return -1;
+    }
+
+    /* Generate __init function for global variable initializers */
+    if (has_globals) {
+        Function init_fn;
+        memset(&init_fn, 0, sizeof(init_fn));
+        init_fn.name = "__init";
+        init_fn.name_len = 6;
+        init_fn.param_count = 0;
+        chunk_init(&init_fn.chunk);
+
+        int fi = module_add_function(&c->module, init_fn);
+
+        CodegenCtx ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.compiler = c;
+        ctx.chunk = &c->module.functions[fi].chunk;
+        ctx.scope_depth = 0;
+        ctx.func_index = fi;
+
+        for (int i = 0; i < prog->decl_count; i++) {
+            if (prog->decls[i]->kind == DECL_VAR) {
+                Decl *d = prog->decls[i];
+                if (d->gv_init) {
+                    gen_expr(&ctx, d->gv_init);
+                } else {
+                    emit(&ctx, OP_NIL, d->line);
+                }
+                int ni = module_find_name(&c->module, d->gv_name, d->gv_name_len);
+                emit(&ctx, OP_GLOBAL_SET, d->line);
+                emit_u16(&ctx, (uint16_t)ni, d->line);
+                emit(&ctx, OP_POP, d->line);
+            }
+        }
+
+        emit(&ctx, OP_NIL, 0);
+        emit(&ctx, OP_RETURN, 0);
+        c->module.functions[fi].local_count = ctx.max_local_count;
     }
 
     return 0;

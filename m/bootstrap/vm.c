@@ -163,12 +163,35 @@ static VMResult run(VM *vm) {
             break;
         }
 
-        case OP_GLOBAL_GET:
-        case OP_GLOBAL_SET:
-            /* Globals not yet implemented — skip index */
-            read_u16(frame);
-            if (op == OP_GLOBAL_GET) push(vm, make_void());
+        case OP_GLOBAL_GET: {
+            uint16_t ni = read_u16(frame);
+            if (ni < vm->module->global_count) {
+                push(vm, vm->module->globals[ni]);
+            } else {
+                push(vm, make_void());
+            }
             break;
+        }
+        case OP_GLOBAL_SET: {
+            uint16_t ni = read_u16(frame);
+            /* Grow globals array if needed */
+            while (ni >= vm->module->global_count) {
+                if (vm->module->global_count >= vm->module->global_cap) {
+                    int new_cap = vm->module->global_cap < 8 ? 8 : vm->module->global_cap * 2;
+                    Val *new_g = tohum_alloc(new_cap * sizeof(Val));
+                    if (vm->module->globals) {
+                        memcpy(new_g, vm->module->globals, vm->module->global_count * sizeof(Val));
+                        tohum_free(vm->module->globals, vm->module->global_cap * sizeof(Val));
+                    }
+                    vm->module->globals = new_g;
+                    vm->module->global_cap = new_cap;
+                }
+                vm->module->globals[vm->module->global_count].type = VAL_VOID;
+                vm->module->global_count++;
+            }
+            vm->module->globals[ni] = peek(vm, 0);
+            break;
+        }
 
         /* Arithmetic */
         case OP_ADD: {
@@ -659,32 +682,23 @@ void vm_init(VM *vm, Module *module) {
     vm->module = module;
 }
 
-VMResult vm_run(VM *vm, const char *entry_name) {
-    int name_len = (int)strlen(entry_name);
-    int fi = -1;
+static int find_func(VM *vm, const char *name, int len) {
     for (int i = 0; i < vm->module->func_count; i++) {
-        if (vm->module->functions[i].name_len == name_len &&
-            memcmp(vm->module->functions[i].name, entry_name, name_len) == 0) {
-            fi = i;
-            break;
+        if (vm->module->functions[i].name_len == len &&
+            memcmp(vm->module->functions[i].name, name, len) == 0) {
+            return i;
         }
     }
+    return -1;
+}
 
-    if (fi < 0) {
-        vm->had_error = 1;
-        snprintf(vm->error_msg, sizeof(vm->error_msg),
-                 "function '%s' not found", entry_name);
-        return VM_ERROR;
-    }
-
+static VMResult vm_call_func(VM *vm, int fi) {
     Function *entry = &vm->module->functions[fi];
 
-    /* Set up initial frame */
-    CallFrame *frame = &vm->frames[0];
+    CallFrame *frame = &vm->frames[vm->frame_count++];
     frame->function = entry;
     frame->ip = entry->chunk.code;
-    frame->slots = vm->stack;
-    vm->frame_count = 1;
+    frame->slots = &vm->stack[vm->stack_top];
 
     /* Reserve space for locals */
     for (int i = 0; i < entry->local_count; i++) {
@@ -692,6 +706,30 @@ VMResult vm_run(VM *vm, const char *entry_name) {
     }
 
     return run(vm);
+}
+
+VMResult vm_run(VM *vm, const char *entry_name) {
+    int name_len = (int)strlen(entry_name);
+
+    /* Run __init if it exists (global variable initializers) */
+    int init_fi = find_func(vm, "__init", 6);
+    if (init_fi >= 0) {
+        VMResult r = vm_call_func(vm, init_fi);
+        if (r != VM_OK) return r;
+        /* Clean up stack after __init */
+        vm->stack_top = 0;
+        vm->frame_count = 0;
+    }
+
+    int fi = find_func(vm, entry_name, name_len);
+    if (fi < 0) {
+        vm->had_error = 1;
+        snprintf(vm->error_msg, sizeof(vm->error_msg),
+                 "function '%s' not found", entry_name);
+        return VM_ERROR;
+    }
+
+    return vm_call_func(vm, fi);
 }
 
 Val vm_result(VM *vm) {

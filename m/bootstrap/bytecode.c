@@ -110,6 +110,7 @@ void module_free(Module *m) {
     }
     if (m->functions) tohum_free(m->functions, m->func_cap * sizeof(Function));
     if (m->names) tohum_free(m->names, m->name_cap * sizeof(m->names[0]));
+    if (m->globals) tohum_free(m->globals, m->global_cap * sizeof(Val));
     memset(m, 0, sizeof(Module));
 }
 

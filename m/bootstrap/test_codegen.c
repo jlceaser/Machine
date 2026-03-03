@@ -711,6 +711,63 @@ static void test_array_of_strings(void) {
     check(v.type == VAL_INT && v.i == 3, "array_strings: len=3");
 }
 
+static void test_global_var_init(void) {
+    int ok;
+    Val v = run_program(
+        "var g: i32 = 42;\n"
+        "fn main() -> i32 { return g; }", &ok);
+    check(ok, "global_var_init: runs");
+    check(v.type == VAL_INT && v.i == 42, "global_var_init: value 42");
+}
+
+static void test_global_var_mutation(void) {
+    int ok;
+    Val v = run_program(
+        "var counter: i32 = 0;\n"
+        "fn inc() -> i32 { counter = counter + 1; return counter; }\n"
+        "fn main() -> i32 { inc(); inc(); inc(); return counter; }", &ok);
+    check(ok, "global_var_mutation: runs");
+    check(v.type == VAL_INT && v.i == 3, "global_var_mutation: value 3");
+}
+
+static void test_global_var_default(void) {
+    int ok;
+    Val v = run_program(
+        "var x: i32;\n"
+        "fn main() -> i32 { x = 99; return x; }", &ok);
+    check(ok, "global_var_default: runs");
+    check(v.type == VAL_INT && v.i == 99, "global_var_default: value 99");
+}
+
+static void test_forward_call(void) {
+    int ok;
+    Val v = run_program(
+        "fn a() -> i32 { return b(); }\n"
+        "fn b() -> i32 { return 77; }\n"
+        "fn main() -> i32 { return a(); }", &ok);
+    check(ok, "forward_call: runs");
+    check(v.type == VAL_INT && v.i == 77, "forward_call: value 77");
+}
+
+static void test_mutual_recursion(void) {
+    int ok;
+    Val v = run_program(
+        "fn is_even(n: i32) -> bool {\n"
+        "    if n == 0 { return true; }\n"
+        "    return is_odd(n - 1);\n"
+        "}\n"
+        "fn is_odd(n: i32) -> bool {\n"
+        "    if n == 0 { return false; }\n"
+        "    return is_even(n - 1);\n"
+        "}\n"
+        "fn main() -> i32 {\n"
+        "    if is_even(10) { return 1; }\n"
+        "    return 0;\n"
+        "}", &ok);
+    check(ok, "mutual_recursion: runs");
+    check(v.type == VAL_INT && v.i == 1, "mutual_recursion: 10 is even");
+}
+
 /* ── Main ──────────────────────────────────────────── */
 
 int main(void) {
@@ -759,6 +816,12 @@ int main(void) {
     test_array_set();
     test_array_loop();
     test_array_of_strings();
+
+    test_global_var_init();
+    test_global_var_mutation();
+    test_global_var_default();
+    test_forward_call();
+    test_mutual_recursion();
 
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;

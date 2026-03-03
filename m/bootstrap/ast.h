@@ -177,6 +177,7 @@ typedef struct {
 typedef enum {
     DECL_FN,
     DECL_STRUCT,
+    DECL_VAR,       /* top-level global variable */
 } DeclKind;
 
 typedef struct {
@@ -206,6 +207,14 @@ typedef struct Decl {
             int st_name_len;
             StructField *st_fields;
             int st_field_count;
+        };
+
+        /* VAR (global) */
+        struct {
+            const char *gv_name;
+            int gv_name_len;
+            TypeNode *gv_type;
+            Expr *gv_init;
         };
     };
 } Decl;

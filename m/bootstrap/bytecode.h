@@ -175,6 +175,11 @@ typedef struct {
     struct { const char *name; int len; } *names;
     int name_count;
     int name_cap;
+
+    /* Global variable storage */
+    Val *globals;
+    int global_count;
+    int global_cap;
 } Module;
 
 /* --- Chunk operations --- */

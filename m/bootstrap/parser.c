@@ -917,11 +917,46 @@ static Decl *parse_struct(Parser *p) {
     return d;
 }
 
+static Decl *parse_global_var(Parser *p) {
+    int line = p->current.line;
+    int col = p->current.col;
+
+    /* 'var' already consumed */
+    const char *name = p->current.start;
+    int name_len = p->current.length;
+    consume(p, TOK_IDENT, "expected variable name");
+
+    /* Optional type annotation */
+    TypeNode *type = NULL;
+    if (match(p, TOK_COLON)) {
+        type = parse_type(p);
+    }
+
+    /* Optional initializer */
+    Expr *init = NULL;
+    if (match(p, TOK_ASSIGN)) {
+        init = parse_expression(p);
+    }
+
+    consume(p, TOK_SEMICOLON, "expected ';' after global var");
+
+    Decl *d = ast_alloc_decl();
+    d->kind = DECL_VAR;
+    d->gv_name = name;
+    d->gv_name_len = name_len;
+    d->gv_type = type;
+    d->gv_init = init;
+    d->line = line;
+    d->col = col;
+    return d;
+}
+
 static Decl *parse_declaration(Parser *p) {
     if (match(p, TOK_FN))     return parse_fn(p);
     if (match(p, TOK_STRUCT)) return parse_struct(p);
+    if (match(p, TOK_VAR))    return parse_global_var(p);
 
-    error_at(p, "expected 'fn' or 'struct' at top level");
+    error_at(p, "expected 'fn', 'struct', or 'var' at top level");
     return NULL;
 }
 
