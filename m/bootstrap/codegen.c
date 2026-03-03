@@ -310,6 +310,24 @@ static void gen_expr(CodegenCtx *ctx, Expr *e) {
                 break;
             }
 
+            /* read_file(path) — read file contents */
+            if (nlen == 9 && memcmp(name, "read_file", 9) == 0) {
+                if (e->arg_count >= 1) {
+                    gen_expr(ctx, e->args[0]);
+                }
+                emit(ctx, OP_BUILTIN_READ_FILE, e->line);
+                break;
+            }
+
+            /* char_to_str(c) — single character to string */
+            if (nlen == 11 && memcmp(name, "char_to_str", 11) == 0) {
+                if (e->arg_count >= 1) {
+                    gen_expr(ctx, e->args[0]);
+                }
+                emit(ctx, OP_BUILTIN_CHAR_TO_STR, e->line);
+                break;
+            }
+
             /* println(expr) — print with newline */
             if (nlen == 7 && memcmp(name, "println", 7) == 0) {
                 if (e->arg_count >= 1) {

@@ -506,6 +506,54 @@ static VMResult run(VM *vm) {
             break;
         }
 
+        case OP_BUILTIN_READ_FILE: {
+            Val path = pop(vm);
+            if (path.type != VAL_STRING) {
+                vm_set_error(vm, "read_file() requires a string path");
+                return VM_ERROR;
+            }
+            /* Need null-terminated path */
+            char *cpath = tohum_alloc(path.s_len + 1);
+            memcpy(cpath, path.s, path.s_len);
+            cpath[path.s_len] = '\0';
+
+            FILE *f = fopen(cpath, "rb");
+            if (!f) {
+                vm_set_error(vm, "cannot open file: %s", cpath);
+                tohum_free(cpath, path.s_len + 1);
+                return VM_ERROR;
+            }
+            fseek(f, 0, SEEK_END);
+            long fsize = ftell(f);
+            fseek(f, 0, SEEK_SET);
+
+            char *buf = tohum_alloc(fsize + 1);
+            fread(buf, 1, fsize, f);
+            buf[fsize] = '\0';
+            fclose(f);
+            tohum_free(cpath, path.s_len + 1);
+
+            Val result = {0};
+            result.type = VAL_STRING;
+            result.s = buf;
+            result.s_len = (int)fsize;
+            push(vm, result);
+            break;
+        }
+
+        case OP_BUILTIN_CHAR_TO_STR: {
+            Val v = pop(vm);
+            char *buf = tohum_alloc(2);
+            buf[0] = (char)(v.i & 0xFF);
+            buf[1] = '\0';
+            Val result = {0};
+            result.type = VAL_STRING;
+            result.s = buf;
+            result.s_len = 1;
+            push(vm, result);
+            break;
+        }
+
         case OP_HALT:
             return VM_HALT;
 

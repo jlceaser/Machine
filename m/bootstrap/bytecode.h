@@ -80,6 +80,8 @@ typedef enum {
     OP_BUILTIN_STR_CONCAT, /* str_concat(a, b) -> string */
     OP_BUILTIN_INT_TO_STR, /* int_to_str(int) -> string */
     OP_BUILTIN_STR_EQ,    /* str_eq(a, b) -> bool */
+    OP_BUILTIN_READ_FILE, /* read_file(path) -> string */
+    OP_BUILTIN_CHAR_TO_STR, /* char_to_str(int) -> string (single char) */
 
     /* System */
     OP_HALT,            /* stop execution */

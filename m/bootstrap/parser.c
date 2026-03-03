@@ -239,11 +239,48 @@ static Expr *make_float_lit(double val, int line, int col) {
     return e;
 }
 
+/* Process escape sequences: \n \t \\ \" \r \0 */
+static const char *process_escapes(const char *s, int len, int *out_len) {
+    /* Quick check: any backslashes? */
+    int has_escape = 0;
+    for (int i = 0; i < len; i++) {
+        if (s[i] == '\\') { has_escape = 1; break; }
+    }
+    if (!has_escape) {
+        *out_len = len;
+        return s;
+    }
+
+    char *buf = ast_alloc(len + 1);
+    int j = 0;
+    for (int i = 0; i < len; i++) {
+        if (s[i] == '\\' && i + 1 < len) {
+            i++;
+            switch (s[i]) {
+            case 'n':  buf[j++] = '\n'; break;
+            case 't':  buf[j++] = '\t'; break;
+            case 'r':  buf[j++] = '\r'; break;
+            case '\\': buf[j++] = '\\'; break;
+            case '"':  buf[j++] = '"'; break;
+            case '0':  buf[j++] = '\0'; break;
+            default:   buf[j++] = '\\'; buf[j++] = s[i]; break;
+            }
+        } else {
+            buf[j++] = s[i];
+        }
+    }
+    buf[j] = '\0';
+    *out_len = j;
+    return buf;
+}
+
 static Expr *make_string_lit(const char *s, int len, int line, int col) {
+    int processed_len;
+    const char *processed = process_escapes(s, len, &processed_len);
     Expr *e = ast_alloc_expr();
     e->kind = EXPR_STRING_LIT;
-    e->str = s;
-    e->str_len = len;
+    e->str = processed;
+    e->str_len = processed_len;
     e->line = line;
     e->col = col;
     return e;

@@ -527,6 +527,99 @@ static void test_tokenizer_in_m(void) {
     check(v.type == VAL_INT && v.i == 6, "tokenizer: 6 tokens in \"let x = 42 + y\"");
 }
 
+static void test_escape_sequences(void) {
+    /* Test that \n in string is actual newline */
+    Parser p;
+    parser_init(&p,
+        "fn main() -> i32 {\n"
+        "    print(\"a\\nb\");\n"
+        "    return 0;\n"
+        "}");
+    Program *prog = parser_parse(&p);
+    Compiler c;
+    compiler_init(&c);
+    compiler_compile(&c, prog);
+    VM vm;
+    vm_init(&vm, compiler_module(&c));
+    vm_run(&vm, "main");
+    check(vm.output_len == 3, "escape: 3 chars (a + newline + b)");
+    check(vm.output[0] == 'a' && vm.output[1] == '\n' && vm.output[2] == 'b',
+          "escape: a\\nb");
+}
+
+static void test_escape_tab(void) {
+    Parser p;
+    parser_init(&p,
+        "fn main() -> i32 {\n"
+        "    print(\"x\\ty\");\n"
+        "    return 0;\n"
+        "}");
+    Program *prog = parser_parse(&p);
+    Compiler c;
+    compiler_init(&c);
+    compiler_compile(&c, prog);
+    VM vm;
+    vm_init(&vm, compiler_module(&c));
+    vm_run(&vm, "main");
+    check(vm.output[1] == '\t', "escape_tab: x\\ty");
+}
+
+static void test_char_to_str(void) {
+    Parser p;
+    parser_init(&p,
+        "fn main() -> i32 {\n"
+        "    let s: string = char_to_str(65);\n"
+        "    print(s);\n"
+        "    return len(s);\n"
+        "}");
+    Program *prog = parser_parse(&p);
+    Compiler c;
+    compiler_init(&c);
+    compiler_compile(&c, prog);
+    VM vm;
+    vm_init(&vm, compiler_module(&c));
+    vm_run(&vm, "main");
+    check(vm.output[0] == 'A', "char_to_str: 65 -> 'A'");
+    Val v = vm_result(&vm);
+    check(v.type == VAL_INT && v.i == 1, "char_to_str: len=1");
+}
+
+static void test_short_circuit_and(void) {
+    /* Verify && short-circuits: second operand not evaluated if first is false */
+    int ok;
+    Val v = run_program(
+        "fn boom() -> bool {\n"
+        "    // If this runs, char_at will crash on out-of-bounds\n"
+        "    let x: i32 = char_at(\"\", 0);\n"
+        "    return true;\n"
+        "}\n"
+        "fn main() -> i32 {\n"
+        "    if false && boom() {\n"
+        "        return 1;\n"
+        "    }\n"
+        "    return 42;\n"
+        "}", &ok);
+    check(ok, "short_circuit_and: runs without crash");
+    check(v.type == VAL_INT && v.i == 42, "short_circuit_and: 42");
+}
+
+static void test_short_circuit_or(void) {
+    int ok;
+    Val v = run_program(
+        "fn boom() -> bool {\n"
+        "    let x: i32 = char_at(\"\", 0);\n"
+        "    return false;\n"
+        "}\n"
+        "fn main() -> i32 {\n"
+        "    if true || boom() {\n"
+        "        return 42;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}", &ok);
+    check(ok, "short_circuit_or: runs without crash");
+    check(v.type == VAL_INT && v.i == 42, "short_circuit_or: 42");
+}
+
 /* ── Main ──────────────────────────────────────────── */
 
 int main(void) {
@@ -565,6 +658,11 @@ int main(void) {
     test_builtin_int_to_str();
     test_builtin_str_eq();
     test_tokenizer_in_m();
+    test_escape_sequences();
+    test_escape_tab();
+    test_char_to_str();
+    test_short_circuit_and();
+    test_short_circuit_or();
 
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;
