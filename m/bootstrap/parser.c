@@ -219,6 +219,7 @@ typedef enum {
 
 static Expr *parse_expression(Parser *p);
 static Expr *parse_precedence(Parser *p, Precedence min_prec);
+static Expr *parse_postfix(Parser *p);
 
 static Expr *make_int_lit(long long val, int line, int col) {
     Expr *e = ast_alloc_expr();
@@ -420,58 +421,19 @@ static Expr *parse_unary(Parser *p) {
         return make_unary(UN_DEREF, operand, line, col);
     }
 
-    return parse_primary(p);
+    return parse_postfix(p);
 }
 
-/* Get binary operator precedence */
-static Precedence get_precedence(TokenType type) {
-    switch (type) {
-    case TOK_OR:                            return PREC_OR;
-    case TOK_AND:                           return PREC_AND;
-    case TOK_EQ: case TOK_NEQ:             return PREC_EQUALITY;
-    case TOK_LT: case TOK_GT:
-    case TOK_LTE: case TOK_GTE:           return PREC_COMPARE;
-    case TOK_PLUS: case TOK_MINUS:         return PREC_TERM;
-    case TOK_STAR: case TOK_SLASH:
-    case TOK_PERCENT:                      return PREC_FACTOR;
-    case TOK_LPAREN:                        return PREC_CALL;
-    case TOK_DOT:                           return PREC_CALL;
-    case TOK_LBRACKET:                      return PREC_CALL;
-    default:                                return PREC_NONE;
-    }
-}
-
-static OpKind token_to_binop(TokenType type) {
-    switch (type) {
-    case TOK_PLUS:    return BIN_ADD;
-    case TOK_MINUS:   return BIN_SUB;
-    case TOK_STAR:    return BIN_MUL;
-    case TOK_SLASH:   return BIN_DIV;
-    case TOK_PERCENT: return BIN_MOD;
-    case TOK_EQ:      return BIN_EQ;
-    case TOK_NEQ:     return BIN_NEQ;
-    case TOK_LT:      return BIN_LT;
-    case TOK_GT:      return BIN_GT;
-    case TOK_LTE:     return BIN_LTE;
-    case TOK_GTE:     return BIN_GTE;
-    case TOK_AND:     return BIN_AND;
-    case TOK_OR:      return BIN_OR;
-    default:          return BIN_ADD; /* unreachable */
-    }
-}
-
-static Expr *parse_precedence(Parser *p, Precedence min_prec) {
-    Expr *left = parse_unary(p);
+/* Parse postfix: call(), member.access, index[i] */
+static Expr *parse_postfix(Parser *p) {
+    Expr *left = parse_primary(p);
     if (p->had_error) return left;
 
     for (;;) {
-        Precedence prec = get_precedence(p->current.type);
-        if (prec < min_prec) break;
-
         int line = p->current.line, col = p->current.col;
 
         /* Function call */
-        if (p->current.type == TOK_LPAREN) {
+        if (check(p, TOK_LPAREN)) {
             advance_token(p); /* consume ( */
 
             int cap = 8;
@@ -506,7 +468,7 @@ static Expr *parse_precedence(Parser *p, Precedence min_prec) {
         }
 
         /* Member access: a.b */
-        if (p->current.type == TOK_DOT) {
+        if (check(p, TOK_DOT)) {
             advance_token(p);
             if (!check(p, TOK_IDENT)) {
                 error_at(p, "expected member name after '.'");
@@ -525,7 +487,7 @@ static Expr *parse_precedence(Parser *p, Precedence min_prec) {
         }
 
         /* Index: a[i] */
-        if (p->current.type == TOK_LBRACKET) {
+        if (check(p, TOK_LBRACKET)) {
             advance_token(p);
             Expr *idx = parse_expression(p);
             consume(p, TOK_RBRACKET, "expected ']' after index");
@@ -540,7 +502,58 @@ static Expr *parse_precedence(Parser *p, Precedence min_prec) {
             continue;
         }
 
-        /* Binary operators */
+        break;
+    }
+
+    return left;
+}
+
+/* Get binary operator precedence */
+static Precedence get_precedence(TokenType type) {
+    switch (type) {
+    case TOK_OR:                            return PREC_OR;
+    case TOK_AND:                           return PREC_AND;
+    case TOK_EQ: case TOK_NEQ:             return PREC_EQUALITY;
+    case TOK_LT: case TOK_GT:
+    case TOK_LTE: case TOK_GTE:           return PREC_COMPARE;
+    case TOK_PLUS: case TOK_MINUS:         return PREC_TERM;
+    case TOK_STAR: case TOK_SLASH:
+    case TOK_PERCENT:                      return PREC_FACTOR;
+    /* call/member/index now handled in parse_postfix */
+    default:                                return PREC_NONE;
+    }
+}
+
+static OpKind token_to_binop(TokenType type) {
+    switch (type) {
+    case TOK_PLUS:    return BIN_ADD;
+    case TOK_MINUS:   return BIN_SUB;
+    case TOK_STAR:    return BIN_MUL;
+    case TOK_SLASH:   return BIN_DIV;
+    case TOK_PERCENT: return BIN_MOD;
+    case TOK_EQ:      return BIN_EQ;
+    case TOK_NEQ:     return BIN_NEQ;
+    case TOK_LT:      return BIN_LT;
+    case TOK_GT:      return BIN_GT;
+    case TOK_LTE:     return BIN_LTE;
+    case TOK_GTE:     return BIN_GTE;
+    case TOK_AND:     return BIN_AND;
+    case TOK_OR:      return BIN_OR;
+    default:          return BIN_ADD; /* unreachable */
+    }
+}
+
+static Expr *parse_precedence(Parser *p, Precedence min_prec) {
+    Expr *left = parse_unary(p);
+    if (p->had_error) return left;
+
+    for (;;) {
+        Precedence prec = get_precedence(p->current.type);
+        if (prec < min_prec) break;
+
+        int line = p->current.line, col = p->current.col;
+
+        /* Binary operators (call/member/index handled in parse_postfix) */
         OpKind op = token_to_binop(p->current.type);
         advance_token(p);
         Expr *right = parse_precedence(p, prec + 1);

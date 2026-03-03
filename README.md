@@ -82,6 +82,11 @@ clang -std=c17 -o test_parser m/bootstrap/lexer.c m/bootstrap/parser.c core/tohu
 # M end-to-end tests (source → compile → run)
 clang -std=c17 -o test_codegen m/bootstrap/lexer.c m/bootstrap/parser.c m/bootstrap/bytecode.c m/bootstrap/codegen.c m/bootstrap/vm.c core/tohum_memory.c m/bootstrap/test_codegen.c
 ./test_codegen
+
+# Run M programs
+clang -std=c17 -o mc m/bootstrap/mc.c m/bootstrap/lexer.c m/bootstrap/parser.c m/bootstrap/bytecode.c m/bootstrap/codegen.c m/bootstrap/vm.c core/tohum_memory.c
+./mc examples/fib.m
+./mc examples/lexer.m
 ```
 
 ## Status
@@ -90,8 +95,9 @@ clang -std=c17 -o test_codegen m/bootstrap/lexer.c m/bootstrap/parser.c m/bootst
 |-------|--------|
 | M lexer | 79/79 tests passing |
 | M parser | 175/175 tests passing |
-| M codegen + VM | 40/40 tests passing |
-| M self-hosting | planned |
+| M codegen + VM | 64/64 tests passing |
+| M string built-ins | len, char_at, substr, str_concat, str_eq, int_to_str |
+| M self-hosting | in progress — M can tokenize M |
 | Machine VM (C++ prototype) | working |
 | Machine VM (M rewrite) | after self-hosting |
 | Machine AI | future |

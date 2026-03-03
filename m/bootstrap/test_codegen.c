@@ -311,6 +311,222 @@ static void test_scope(void) {
     check(v.type == VAL_INT && v.i == 30, "scope: x+y=30");
 }
 
+static void test_builtin_len(void) {
+    int ok;
+    Val v = run_program(
+        "fn main() -> i32 {\n"
+        "    return len(\"hello\");\n"
+        "}", &ok);
+    check(ok, "len: runs");
+    check(v.type == VAL_INT && v.i == 5, "len: len(\"hello\")=5");
+}
+
+static void test_builtin_len_empty(void) {
+    int ok;
+    Val v = run_program(
+        "fn main() -> i32 {\n"
+        "    return len(\"\");\n"
+        "}", &ok);
+    check(ok, "len_empty: runs");
+    check(v.type == VAL_INT && v.i == 0, "len_empty: len(\"\")=0");
+}
+
+static void test_builtin_char_at(void) {
+    int ok;
+    Val v = run_program(
+        "fn main() -> i32 {\n"
+        "    return char_at(\"ABC\", 0);\n"
+        "}", &ok);
+    check(ok, "char_at: runs");
+    check(v.type == VAL_INT && v.i == 65, "char_at: char_at(\"ABC\",0)=65 ('A')");
+}
+
+static void test_builtin_char_at_mid(void) {
+    int ok;
+    Val v = run_program(
+        "fn main() -> i32 {\n"
+        "    return char_at(\"Machine\", 3);\n"
+        "}", &ok);
+    check(ok, "char_at_mid: runs");
+    check(v.type == VAL_INT && v.i == 104, "char_at_mid: char_at(\"Machine\",3)=104 ('h')");
+}
+
+static void test_string_scan(void) {
+    int ok;
+    Val v = run_program(
+        "fn is_digit(c: i32) -> bool {\n"
+        "    return c >= 48 && c <= 57;\n"
+        "}\n"
+        "fn count_digits(s: string) -> i32 {\n"
+        "    var count: i32 = 0;\n"
+        "    var i: i32 = 0;\n"
+        "    while i < len(s) {\n"
+        "        if is_digit(char_at(s, i)) {\n"
+        "            count = count + 1;\n"
+        "        }\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return count;\n"
+        "}\n"
+        "fn main() -> i32 {\n"
+        "    return count_digits(\"abc123def45\");\n"
+        "}", &ok);
+    check(ok, "string_scan: runs");
+    check(v.type == VAL_INT && v.i == 5, "string_scan: 5 digits in \"abc123def45\"");
+}
+
+static void test_print_output(void) {
+    /* Test that print/println produce correct output */
+    Parser p;
+    parser_init(&p,
+        "fn main() -> i32 {\n"
+        "    print(\"hello \");\n"
+        "    println(42);\n"
+        "    return 0;\n"
+        "}");
+    Program *prog = parser_parse(&p);
+    Compiler c;
+    compiler_init(&c);
+    compiler_compile(&c, prog);
+    VM vm;
+    vm_init(&vm, compiler_module(&c));
+    vm_run(&vm, "main");
+    check(vm.output_len > 0, "print_output: has output");
+    check(memcmp(vm.output, "hello 42\n", 9) == 0, "print_output: \"hello 42\\n\"");
+}
+
+static void test_builtin_substr(void) {
+    int ok;
+    Val v = run_program(
+        "fn main() -> i32 {\n"
+        "    let s: string = substr(\"Machine\", 0, 4);\n"
+        "    return len(s);\n"
+        "}", &ok);
+    check(ok, "substr: runs");
+    check(v.type == VAL_INT && v.i == 4, "substr: len(substr(\"Machine\",0,4))=4");
+}
+
+static void test_builtin_substr_content(void) {
+    /* Check that substr extracts the right characters */
+    Parser p;
+    parser_init(&p,
+        "fn main() -> i32 {\n"
+        "    let s: string = substr(\"Machine\", 2, 3);\n"
+        "    print(s);\n"
+        "    return 0;\n"
+        "}");
+    Program *prog = parser_parse(&p);
+    Compiler c;
+    compiler_init(&c);
+    compiler_compile(&c, prog);
+    VM vm;
+    vm_init(&vm, compiler_module(&c));
+    vm_run(&vm, "main");
+    check(vm.output_len == 3, "substr_content: 3 chars");
+    check(memcmp(vm.output, "chi", 3) == 0, "substr_content: \"chi\"");
+}
+
+static void test_builtin_str_concat(void) {
+    Parser p;
+    parser_init(&p,
+        "fn main() -> i32 {\n"
+        "    let s: string = str_concat(\"hello \", \"world\");\n"
+        "    print(s);\n"
+        "    return len(s);\n"
+        "}");
+    Program *prog = parser_parse(&p);
+    Compiler c;
+    compiler_init(&c);
+    compiler_compile(&c, prog);
+    VM vm;
+    vm_init(&vm, compiler_module(&c));
+    vm_run(&vm, "main");
+    check(memcmp(vm.output, "hello world", 11) == 0, "str_concat: \"hello world\"");
+    Val v = vm_result(&vm);
+    check(v.type == VAL_INT && v.i == 11, "str_concat: len=11");
+}
+
+static void test_builtin_int_to_str(void) {
+    Parser p;
+    parser_init(&p,
+        "fn main() -> i32 {\n"
+        "    let s: string = int_to_str(42);\n"
+        "    print(s);\n"
+        "    return len(s);\n"
+        "}");
+    Program *prog = parser_parse(&p);
+    Compiler c;
+    compiler_init(&c);
+    compiler_compile(&c, prog);
+    VM vm;
+    vm_init(&vm, compiler_module(&c));
+    vm_run(&vm, "main");
+    check(memcmp(vm.output, "42", 2) == 0, "int_to_str: \"42\"");
+    Val v = vm_result(&vm);
+    check(v.type == VAL_INT && v.i == 2, "int_to_str: len=2");
+}
+
+static void test_builtin_str_eq(void) {
+    int ok;
+    Val v = run_program(
+        "fn main() -> i32 {\n"
+        "    var result: i32 = 0;\n"
+        "    if str_eq(\"abc\", \"abc\") { result = result + 1; }\n"
+        "    if !str_eq(\"abc\", \"xyz\") { result = result + 1; }\n"
+        "    if !str_eq(\"ab\", \"abc\") { result = result + 1; }\n"
+        "    return result;\n"
+        "}", &ok);
+    check(ok, "str_eq: runs");
+    check(v.type == VAL_INT && v.i == 3, "str_eq: all 3 checks pass");
+}
+
+static void test_tokenizer_in_m(void) {
+    /* The real test: can M tokenize a string? */
+    int ok;
+    Val v = run_program(
+        "fn is_space(c: i32) -> bool {\n"
+        "    return c == 32 || c == 10 || c == 9;\n"
+        "}\n"
+        "fn is_alpha(c: i32) -> bool {\n"
+        "    if c >= 65 && c <= 90 { return true; }\n"
+        "    if c >= 97 && c <= 122 { return true; }\n"
+        "    return c == 95;\n"
+        "}\n"
+        "fn is_digit(c: i32) -> bool {\n"
+        "    return c >= 48 && c <= 57;\n"
+        "}\n"
+        "fn count_tokens(src: string) -> i32 {\n"
+        "    var tokens: i32 = 0;\n"
+        "    var i: i32 = 0;\n"
+        "    while i < len(src) {\n"
+        "        let c: i32 = char_at(src, i);\n"
+        "        if is_space(c) {\n"
+        "            i = i + 1;\n"
+        "        } else if is_digit(c) {\n"
+        "            tokens = tokens + 1;\n"
+        "            while i < len(src) && is_digit(char_at(src, i)) {\n"
+        "                i = i + 1;\n"
+        "            }\n"
+        "        } else if is_alpha(c) {\n"
+        "            tokens = tokens + 1;\n"
+        "            while i < len(src) && is_alpha(char_at(src, i)) {\n"
+        "                i = i + 1;\n"
+        "            }\n"
+        "        } else {\n"
+        "            tokens = tokens + 1;\n"
+        "            i = i + 1;\n"
+        "        }\n"
+        "    }\n"
+        "    return tokens;\n"
+        "}\n"
+        "fn main() -> i32 {\n"
+        "    return count_tokens(\"let x = 42 + y\");\n"
+        "}", &ok);
+    check(ok, "tokenizer: runs");
+    /* "let" "x" "=" "42" "+" "y" = 6 tokens */
+    check(v.type == VAL_INT && v.i == 6, "tokenizer: 6 tokens in \"let x = 42 + y\"");
+}
+
 /* ── Main ──────────────────────────────────────────── */
 
 int main(void) {
@@ -336,6 +552,19 @@ int main(void) {
     test_float_arithmetic();
     test_multiple_locals();
     test_scope();
+
+    test_builtin_len();
+    test_builtin_len_empty();
+    test_builtin_char_at();
+    test_builtin_char_at_mid();
+    test_string_scan();
+    test_print_output();
+    test_builtin_substr();
+    test_builtin_substr_content();
+    test_builtin_str_concat();
+    test_builtin_int_to_str();
+    test_builtin_str_eq();
+    test_tokenizer_in_m();
 
     printf("\n%d/%d tests passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;

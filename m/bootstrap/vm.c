@@ -401,6 +401,111 @@ static VMResult run(VM *vm) {
             break;
         }
 
+        /* Built-in functions */
+        case OP_BUILTIN_LEN: {
+            Val v = pop(vm);
+            if (v.type == VAL_STRING) {
+                push(vm, make_int(v.s_len));
+            } else {
+                vm_set_error(vm, "len() requires a string");
+                return VM_ERROR;
+            }
+            break;
+        }
+
+        case OP_BUILTIN_CHAR_AT: {
+            Val idx = pop(vm);
+            Val str = pop(vm);
+            if (str.type != VAL_STRING) {
+                vm_set_error(vm, "char_at() requires a string");
+                return VM_ERROR;
+            }
+            if (idx.type != VAL_INT) {
+                vm_set_error(vm, "char_at() index must be integer");
+                return VM_ERROR;
+            }
+            if (idx.i < 0 || idx.i >= str.s_len) {
+                vm_set_error(vm, "char_at() index %lld out of bounds (len=%d)",
+                         (long long)idx.i, str.s_len);
+                return VM_ERROR;
+            }
+            push(vm, make_int((unsigned char)str.s[idx.i]));
+            break;
+        }
+
+        case OP_BUILTIN_SUBSTR: {
+            Val vlen = pop(vm);
+            Val vstart = pop(vm);
+            Val vstr = pop(vm);
+            if (vstr.type != VAL_STRING) {
+                vm_set_error(vm, "substr() requires a string");
+                return VM_ERROR;
+            }
+            int start = (int)vstart.i;
+            int slen = (int)vlen.i;
+            if (start < 0) start = 0;
+            if (start > vstr.s_len) start = vstr.s_len;
+            if (slen < 0) slen = 0;
+            if (start + slen > vstr.s_len) slen = vstr.s_len - start;
+            /* Allocate a new string for the substring */
+            char *buf = tohum_alloc(slen + 1);
+            memcpy(buf, vstr.s + start, slen);
+            buf[slen] = '\0';
+            Val result = {0};
+            result.type = VAL_STRING;
+            result.s = buf;
+            result.s_len = slen;
+            push(vm, result);
+            break;
+        }
+
+        case OP_BUILTIN_STR_CONCAT: {
+            Val b = pop(vm);
+            Val a = pop(vm);
+            if (a.type != VAL_STRING || b.type != VAL_STRING) {
+                vm_set_error(vm, "str_concat() requires two strings");
+                return VM_ERROR;
+            }
+            int total = a.s_len + b.s_len;
+            char *buf = tohum_alloc(total + 1);
+            memcpy(buf, a.s, a.s_len);
+            memcpy(buf + a.s_len, b.s, b.s_len);
+            buf[total] = '\0';
+            Val result = {0};
+            result.type = VAL_STRING;
+            result.s = buf;
+            result.s_len = total;
+            push(vm, result);
+            break;
+        }
+
+        case OP_BUILTIN_INT_TO_STR: {
+            Val v = pop(vm);
+            char buf[32];
+            int n = snprintf(buf, sizeof(buf), "%lld", (long long)v.i);
+            char *str = tohum_alloc(n + 1);
+            memcpy(str, buf, n + 1);
+            Val result = {0};
+            result.type = VAL_STRING;
+            result.s = str;
+            result.s_len = n;
+            push(vm, result);
+            break;
+        }
+
+        case OP_BUILTIN_STR_EQ: {
+            Val b = pop(vm);
+            Val a = pop(vm);
+            if (a.type != VAL_STRING || b.type != VAL_STRING) {
+                push(vm, make_bool(0));
+            } else {
+                int eq = (a.s_len == b.s_len) &&
+                         (a.s_len == 0 || memcmp(a.s, b.s, a.s_len) == 0);
+                push(vm, make_bool(eq));
+            }
+            break;
+        }
+
         case OP_HALT:
             return VM_HALT;
 

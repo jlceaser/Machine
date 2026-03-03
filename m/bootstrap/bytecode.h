@@ -72,8 +72,16 @@ typedef enum {
     OP_LOAD,            /* dereference pointer */
     OP_STORE,           /* store through pointer: [value] [ptr] */
 
-    /* Debug / temporary */
+    /* Built-in functions */
     OP_PRINT,           /* print TOS */
+    OP_BUILTIN_LEN,     /* len(string) -> int */
+    OP_BUILTIN_CHAR_AT, /* char_at(string, int) -> int */
+    OP_BUILTIN_SUBSTR,  /* substr(string, start, len) -> string */
+    OP_BUILTIN_STR_CONCAT, /* str_concat(a, b) -> string */
+    OP_BUILTIN_INT_TO_STR, /* int_to_str(int) -> string */
+    OP_BUILTIN_STR_EQ,    /* str_eq(a, b) -> bool */
+
+    /* System */
     OP_HALT,            /* stop execution */
 } OpCode;
 

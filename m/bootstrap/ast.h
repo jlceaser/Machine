@@ -9,6 +9,7 @@
 #define M_AST_H
 
 #include "lexer.h"
+#include <stddef.h>
 
 /* --- Type representation --- */
 

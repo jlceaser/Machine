@@ -73,10 +73,11 @@ static void begin_scope(CodegenCtx *ctx) {
 }
 
 static void end_scope(CodegenCtx *ctx) {
-    /* Pop locals from this scope */
+    /* Remove locals from this scope (compile-time only).
+     * No OP_POP: locals are pre-allocated at function entry
+     * via max_local_count, so the stack slots persist. */
     while (ctx->local_count > 0 &&
            ctx->locals[ctx->local_count - 1].depth == ctx->scope_depth) {
-        chunk_write(ctx->chunk, OP_POP, 0);
         ctx->local_count--;
     }
     ctx->scope_depth--;
@@ -176,6 +177,32 @@ static void gen_expr(CodegenCtx *ctx, Expr *e) {
     }
 
     case EXPR_BINARY: {
+        /* Short-circuit && and || */
+        if (e->bin_op == BIN_AND) {
+            gen_expr(ctx, e->lhs);
+            int skip = emit_jump(ctx, OP_JUMP_FALSE, e->line);
+            /* Left was true (popped by JUMP_FALSE), evaluate right */
+            gen_expr(ctx, e->rhs);
+            int end = emit_jump(ctx, OP_JUMP, e->line);
+            /* Left was false: push false */
+            patch_jump(ctx, skip);
+            emit(ctx, OP_FALSE, e->line);
+            patch_jump(ctx, end);
+            break;
+        }
+        if (e->bin_op == BIN_OR) {
+            gen_expr(ctx, e->lhs);
+            int try_right = emit_jump(ctx, OP_JUMP_FALSE, e->line);
+            /* Left was true (popped): push true */
+            emit(ctx, OP_TRUE, e->line);
+            int end = emit_jump(ctx, OP_JUMP, e->line);
+            /* Left was false: evaluate right */
+            patch_jump(ctx, try_right);
+            gen_expr(ctx, e->rhs);
+            patch_jump(ctx, end);
+            break;
+        }
+
         gen_expr(ctx, e->lhs);
         gen_expr(ctx, e->rhs);
         switch (e->bin_op) {
@@ -190,8 +217,6 @@ static void gen_expr(CodegenCtx *ctx, Expr *e) {
         case BIN_GT:   emit(ctx, OP_GT, e->line); break;
         case BIN_LTE:  emit(ctx, OP_LTE, e->line); break;
         case BIN_GTE:  emit(ctx, OP_GTE, e->line); break;
-        case BIN_AND:  emit(ctx, OP_AND, e->line); break;
-        case BIN_OR:   emit(ctx, OP_OR, e->line); break;
         default: break;
         }
         break;
@@ -223,6 +248,65 @@ static void gen_expr(CodegenCtx *ctx, Expr *e) {
                 }
                 /* print returns void, push nil */
                 emit(ctx, OP_NIL, e->line);
+                break;
+            }
+
+            /* len(str) — string length */
+            if (nlen == 3 && memcmp(name, "len", 3) == 0) {
+                if (e->arg_count >= 1) {
+                    gen_expr(ctx, e->args[0]);
+                }
+                emit(ctx, OP_BUILTIN_LEN, e->line);
+                break;
+            }
+
+            /* char_at(str, i) — character code at index */
+            if (nlen == 7 && memcmp(name, "char_at", 7) == 0) {
+                if (e->arg_count >= 2) {
+                    gen_expr(ctx, e->args[0]);
+                    gen_expr(ctx, e->args[1]);
+                }
+                emit(ctx, OP_BUILTIN_CHAR_AT, e->line);
+                break;
+            }
+
+            /* substr(str, start, len) — substring */
+            if (nlen == 6 && memcmp(name, "substr", 6) == 0) {
+                if (e->arg_count >= 3) {
+                    gen_expr(ctx, e->args[0]);
+                    gen_expr(ctx, e->args[1]);
+                    gen_expr(ctx, e->args[2]);
+                }
+                emit(ctx, OP_BUILTIN_SUBSTR, e->line);
+                break;
+            }
+
+            /* str_concat(a, b) — concatenate strings */
+            if (nlen == 10 && memcmp(name, "str_concat", 10) == 0) {
+                if (e->arg_count >= 2) {
+                    gen_expr(ctx, e->args[0]);
+                    gen_expr(ctx, e->args[1]);
+                }
+                emit(ctx, OP_BUILTIN_STR_CONCAT, e->line);
+                break;
+            }
+
+            /* int_to_str(n) — integer to string */
+            if (nlen == 10 && memcmp(name, "int_to_str", 10) == 0) {
+                if (e->arg_count >= 1) {
+                    gen_expr(ctx, e->args[0]);
+                }
+                emit(ctx, OP_BUILTIN_INT_TO_STR, e->line);
+                break;
+            }
+
+            /* str_eq(a, b) — string equality */
+            if (nlen == 6 && memcmp(name, "str_eq", 6) == 0) {
+                if (e->arg_count >= 2) {
+                    gen_expr(ctx, e->args[0]);
+                    gen_expr(ctx, e->args[1]);
+                }
+                emit(ctx, OP_BUILTIN_STR_EQ, e->line);
                 break;
             }
 
