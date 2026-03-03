@@ -48,12 +48,12 @@ typedef enum {
 } ExprKind;
 
 typedef enum {
-    OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD,
-    OP_EQ, OP_NEQ, OP_LT, OP_GT, OP_LTE, OP_GTE,
-    OP_AND, OP_OR,
-    OP_NEG, OP_NOT,     /* unary */
-    OP_ADDR,            /* &x */
-    OP_DEREF,           /* *x */
+    BIN_ADD, BIN_SUB, BIN_MUL, BIN_DIV, BIN_MOD,
+    BIN_EQ, BIN_NEQ, BIN_LT, BIN_GT, BIN_LTE, BIN_GTE,
+    BIN_AND, BIN_OR,
+    UN_NEG, UN_NOT,     /* unary */
+    UN_ADDR,            /* &x */
+    UN_DEREF,           /* *x */
 } OpKind;
 
 typedef struct Expr Expr;

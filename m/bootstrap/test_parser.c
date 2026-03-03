@@ -82,7 +82,7 @@ static void test_binary_add(void) {
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "add: no error");
     check(e->kind == EXPR_BINARY, "add: kind");
-    check(e->bin_op == OP_ADD, "add: op");
+    check(e->bin_op == BIN_ADD, "add: op");
     check(e->lhs->kind == EXPR_INT_LIT && e->lhs->int_val == 1, "add: lhs");
     check(e->rhs->kind == EXPR_INT_LIT && e->rhs->int_val == 2, "add: rhs");
 }
@@ -94,10 +94,10 @@ static void test_binary_precedence(void) {
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "prec: no error");
     check(e->kind == EXPR_BINARY, "prec: top is binary");
-    check(e->bin_op == OP_ADD, "prec: top is +");
+    check(e->bin_op == BIN_ADD, "prec: top is +");
     check(e->lhs->int_val == 1, "prec: lhs is 1");
     check(e->rhs->kind == EXPR_BINARY, "prec: rhs is binary");
-    check(e->rhs->bin_op == OP_MUL, "prec: rhs is *");
+    check(e->rhs->bin_op == BIN_MUL, "prec: rhs is *");
     check(e->rhs->lhs->int_val == 2, "prec: 2");
     check(e->rhs->rhs->int_val == 3, "prec: 3");
 }
@@ -108,7 +108,7 @@ static void test_comparison(void) {
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "cmp: no error");
     check(e->kind == EXPR_BINARY, "cmp: binary");
-    check(e->bin_op == OP_LT, "cmp: LT");
+    check(e->bin_op == BIN_LT, "cmp: LT");
 }
 
 static void test_logical(void) {
@@ -117,9 +117,9 @@ static void test_logical(void) {
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "logic: no error");
     check(e->kind == EXPR_BINARY, "logic: binary");
-    check(e->bin_op == OP_OR, "logic: top is OR");
+    check(e->bin_op == BIN_OR, "logic: top is OR");
     check(e->lhs->kind == EXPR_BINARY, "logic: lhs is binary");
-    check(e->lhs->bin_op == OP_AND, "logic: lhs is AND");
+    check(e->lhs->bin_op == BIN_AND, "logic: lhs is AND");
 }
 
 static void test_unary_neg(void) {
@@ -128,7 +128,7 @@ static void test_unary_neg(void) {
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "neg: no error");
     check(e->kind == EXPR_UNARY, "neg: unary");
-    check(e->unary_op == OP_NEG, "neg: NEG");
+    check(e->unary_op == UN_NEG, "neg: NEG");
     check(e->operand->kind == EXPR_INT_LIT, "neg: operand is int");
 }
 
@@ -138,7 +138,7 @@ static void test_unary_not(void) {
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "not: no error");
     check(e->kind == EXPR_UNARY, "not: unary");
-    check(e->unary_op == OP_NOT, "not: NOT");
+    check(e->unary_op == UN_NOT, "not: NOT");
 }
 
 static void test_unary_addr_deref(void) {
@@ -146,12 +146,12 @@ static void test_unary_addr_deref(void) {
     parser_init(&p, "&x");
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "addr: no error");
-    check(e->kind == EXPR_UNARY && e->unary_op == OP_ADDR, "addr: &");
+    check(e->kind == EXPR_UNARY && e->unary_op == UN_ADDR, "addr: &");
 
     parser_init(&p, "*p");
     e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "deref: no error");
-    check(e->kind == EXPR_UNARY && e->unary_op == OP_DEREF, "deref: *");
+    check(e->kind == EXPR_UNARY && e->unary_op == UN_DEREF, "deref: *");
 }
 
 static void test_call(void) {
@@ -211,8 +211,8 @@ static void test_parenthesized(void) {
     Expr *e = parser_parse_expr(&p);
     check(!parser_had_error(&p), "paren: no error");
     check(e->kind == EXPR_BINARY, "paren: top binary");
-    check(e->bin_op == OP_MUL, "paren: top is *");
-    check(e->lhs->kind == EXPR_BINARY && e->lhs->bin_op == OP_ADD, "paren: lhs is +");
+    check(e->bin_op == BIN_MUL, "paren: top is *");
+    check(e->lhs->kind == EXPR_BINARY && e->lhs->bin_op == BIN_ADD, "paren: lhs is +");
 }
 
 /* ── Statement tests ───────────────────────────────── */

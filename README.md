@@ -78,6 +78,10 @@ clang -std=c17 -o test_lexer m/bootstrap/lexer.c m/bootstrap/test_lexer.c
 # M parser tests (C bootstrap)
 clang -std=c17 -o test_parser m/bootstrap/lexer.c m/bootstrap/parser.c core/tohum_memory.c m/bootstrap/test_parser.c
 ./test_parser
+
+# M end-to-end tests (source → compile → run)
+clang -std=c17 -o test_codegen m/bootstrap/lexer.c m/bootstrap/parser.c m/bootstrap/bytecode.c m/bootstrap/codegen.c m/bootstrap/vm.c core/tohum_memory.c m/bootstrap/test_codegen.c
+./test_codegen
 ```
 
 ## Status
@@ -86,7 +90,7 @@ clang -std=c17 -o test_parser m/bootstrap/lexer.c m/bootstrap/parser.c core/tohu
 |-------|--------|
 | M lexer | 79/79 tests passing |
 | M parser | 175/175 tests passing |
-| M codegen | planned |
+| M codegen + VM | 40/40 tests passing |
 | M self-hosting | planned |
 | Machine VM (C++ prototype) | working |
 | Machine VM (M rewrite) | after self-hosting |

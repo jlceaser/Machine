@@ -405,19 +405,19 @@ static Expr *parse_unary(Parser *p) {
 
     if (match(p, TOK_MINUS)) {
         Expr *operand = parse_unary(p);
-        return make_unary(OP_NEG, operand, line, col);
+        return make_unary(UN_NEG, operand, line, col);
     }
     if (match(p, TOK_NOT)) {
         Expr *operand = parse_unary(p);
-        return make_unary(OP_NOT, operand, line, col);
+        return make_unary(UN_NOT, operand, line, col);
     }
     if (match(p, TOK_AMPERSAND)) {
         Expr *operand = parse_unary(p);
-        return make_unary(OP_ADDR, operand, line, col);
+        return make_unary(UN_ADDR, operand, line, col);
     }
     if (match(p, TOK_STAR)) {
         Expr *operand = parse_unary(p);
-        return make_unary(OP_DEREF, operand, line, col);
+        return make_unary(UN_DEREF, operand, line, col);
     }
 
     return parse_primary(p);
@@ -443,20 +443,20 @@ static Precedence get_precedence(TokenType type) {
 
 static OpKind token_to_binop(TokenType type) {
     switch (type) {
-    case TOK_PLUS:    return OP_ADD;
-    case TOK_MINUS:   return OP_SUB;
-    case TOK_STAR:    return OP_MUL;
-    case TOK_SLASH:   return OP_DIV;
-    case TOK_PERCENT: return OP_MOD;
-    case TOK_EQ:      return OP_EQ;
-    case TOK_NEQ:     return OP_NEQ;
-    case TOK_LT:      return OP_LT;
-    case TOK_GT:      return OP_GT;
-    case TOK_LTE:     return OP_LTE;
-    case TOK_GTE:     return OP_GTE;
-    case TOK_AND:     return OP_AND;
-    case TOK_OR:      return OP_OR;
-    default:          return OP_ADD; /* unreachable */
+    case TOK_PLUS:    return BIN_ADD;
+    case TOK_MINUS:   return BIN_SUB;
+    case TOK_STAR:    return BIN_MUL;
+    case TOK_SLASH:   return BIN_DIV;
+    case TOK_PERCENT: return BIN_MOD;
+    case TOK_EQ:      return BIN_EQ;
+    case TOK_NEQ:     return BIN_NEQ;
+    case TOK_LT:      return BIN_LT;
+    case TOK_GT:      return BIN_GT;
+    case TOK_LTE:     return BIN_LTE;
+    case TOK_GTE:     return BIN_GTE;
+    case TOK_AND:     return BIN_AND;
+    case TOK_OR:      return BIN_OR;
+    default:          return BIN_ADD; /* unreachable */
     }
 }
 
