@@ -9,98 +9,143 @@ A self-built intelligence stack. From metal to mind.
 
 ## What is Machine?
 
-A full computing stack — language, virtual machine, and AI — built from scratch. No dependency we didn't write. Every byte ours.
+A system that understands software languages — starting with itself, then C, then everything else. Not a text processor. A code-aware computing substrate.
 
 ```
 Hardware (x86/ARM)
-  └── M language (systems language, bootstrapped from assembly/C)
-       └── Machine VM (temporal computation, native uncertainty)
-            └── Machine AI (reasoning, learning, reflecting)
+  └── M language (bone language, self-hosting, compiles to native)
+       └── Machine VM (temporal computation, uncertainty — written in M)
+            └── Machine AI (reasoning over code and systems)
 ```
 
 ### M — The Bone Language
 
-A minimal systems language. No hidden allocations, no implicit conversions, no runtime. What you write is what runs. M exists so that Machine can exist without depending on anything we didn't build.
+A minimal systems language. No hidden allocations, no implicit conversions, no runtime magic. What you write is what runs. M exists so that Machine can exist without depending on anything we didn't build.
 
-### Machine VM — The Core
+**Self-hosting proven:** M compiles itself, transpiles to C, produces native executables. The generated native compiler reproduces itself byte-identically (fixed point).
 
-A stack-based virtual machine where:
+### Machine VM — The Core (planned)
 
-- **Every value has a history.** Assignment doesn't overwrite — it appends to a timeline.
-- **Uncertainty is native.** Values carry confidence levels. Arithmetic propagates uncertainty automatically.
-- **State is immortal.** Close the REPL, reopen it tomorrow — everything is still there.
-- **The machine knows itself.** Built-in reflection lets programs inspect their own state, drift, and evolution.
+A virtual machine where every value has a history, uncertainty is native, and programs can inspect their own state. Will be written in M — not ported from C++, designed from scratch.
 
-### Machine AI — The Mind
+### Machine AI — The Mind (future)
 
-A reasoning engine built on Machine VM's primitives: temporal memory, uncertainty, persistence, self-reflection. Not a neural network — a symbolic intelligence that thinks in uncertain terms, accumulates knowledge over time, and can examine its own state.
+A reasoning engine built on Machine VM primitives: temporal memory, uncertainty, persistence, self-reflection.
 
-## Example (working)
+## Current Status
 
-```
-machine > x = 42
-machine > y = ~3.14
-machine > z = x + y
-machine > z
-  = ~45.14 @ 0.90
-machine > x = 100
-machine > history(x)
-  [0] 2026-03-03 12:01 — 42 (direct)
-  [1] 2026-03-03 12:01 — 100 (rebind)
-machine > reflect()
-  bindings: 3
-  certain: 1
-  approximate: 2
-  most changed: x (2 entries)
-```
+| Component | Status | Detail |
+|-----------|--------|--------|
+| M lexer | **347/347** tests | Full tokenizer with all operators, keywords, literals |
+| M parser | **complete** | 6505 tokens, 113 declarations, 3891 AST nodes (self-parse) |
+| M bytecode compiler | **63/63** tests | Compiles M to bytecode, runs on VM |
+| M interpreter | **27/27** tests | M interprets M (self_interp.m) |
+| M → C transpiler | **working** | AST walk → C source → gcc → native (~48x speedup) |
+| Self-hosting | **proven** | Byte-identical fixed point across 4 levels |
+| C lexer (in M) | **13/13** tests | M tokenizes C code (32 keywords, 46 operators) |
+| C parser (in M) | **28/28** tests | Structural + expression/statement parsing |
+| C → M translator | **working** | All 6 bootstrap files translate (3249 lines M, 124 functions) |
+| Escape processing | **working** | `\n` → char 10 in bytecode compiler |
+| Machine VM (M) | planned | Next milestone |
 
-Close it. Reopen tomorrow:
+## Self-Hosting Proof
 
 ```
-machine > reflect()
-  (restored 3 bindings from previous session)
-machine > drift()
-  stable: 3, changed: 0, new: 0
+Level 0: C bootstrap        → mc.exe
+Level 1: mc.exe (VM)        → transpiles self_codegen.m → self_codegen.c
+Level 2: gcc self_codegen.c → mc_native.exe (63/63 tests pass)
+Level 3: mc_native.exe      → transpiles self_codegen.m → gen2.c
+Level 4: gen1.c == gen2.c   → BYTE-IDENTICAL FIXED POINT
 ```
+
+## Phase 2: M Reads C
+
+M can now read, parse, and translate its own C bootstrap code to M syntax:
+
+```
+bytecode.c (153 lines) → 162 lines M    lexer.c  (383 lines) → 577 lines M
+parser.c  (1025 lines) → 950 lines M    codegen.c (726 lines) → 616 lines M
+vm.c       (785 lines) → 687 lines M    mc.c      (232 lines) → 198 lines M
+```
+
+Pointer operations and `sizeof` remain as comments (no M equivalent). All logic, control flow, and function signatures are fully translated. Ternary operators expand to if/else. Character escape sequences resolve to integer values.
 
 ## Building
 
 ```bash
-# VM prototype (C++)
-cmake --preset dev
-cmake --build --preset dev
-./build/dev/tohum
+# Build from C bootstrap
+gcc -O2 -o mc.exe m/bootstrap/mc.c m/bootstrap/lexer.c m/bootstrap/parser.c \
+    m/bootstrap/codegen.c m/bootstrap/vm.c m/bootstrap/bytecode.c \
+    core/tohum_memory.c -Im/bootstrap -Iinclude
 
-# M lexer tests (C bootstrap)
-clang -std=c17 -o test_lexer m/bootstrap/lexer.c m/bootstrap/test_lexer.c
-./test_lexer
+# Or build from generated single-file bootstrap
+gcc -O2 -o mc.exe m/generated/self_codegen.c
 
-# M parser tests (C bootstrap)
-clang -std=c17 -o test_parser m/bootstrap/lexer.c m/bootstrap/parser.c core/tohum_memory.c m/bootstrap/test_parser.c
-./test_parser
+# Run M compiler test suite (63 tests)
+./mc.exe examples/self_codegen.m
 
-# M end-to-end tests (source → compile → run)
-clang -std=c17 -o test_codegen m/bootstrap/lexer.c m/bootstrap/parser.c m/bootstrap/bytecode.c m/bootstrap/codegen.c m/bootstrap/vm.c core/tohum_memory.c m/bootstrap/test_codegen.c
-./test_codegen
+# Run C lexer tests (13 tests)
+./mc.exe examples/self_codegen.m examples/c_lexer.m
 
-# Run M programs
-clang -std=c17 -o mc m/bootstrap/mc.c m/bootstrap/lexer.c m/bootstrap/parser.c m/bootstrap/bytecode.c m/bootstrap/codegen.c m/bootstrap/vm.c core/tohum_memory.c
-./mc examples/fib.m
-./mc examples/lexer.m
+# Run C parser + translator tests (28 tests)
+./mc.exe examples/self_codegen.m examples/c_parser.m
+
+# Compile and run an M program
+./mc.exe examples/self_codegen.m examples/bench_fib.m
+
+# Transpile M to C
+./mc.exe examples/self_codegen.m --emit-c examples/bench_fib.m output.c
+
+# Translate C to M
+./mc.exe examples/self_codegen.m examples/c_parser.m --translate path/to/file.c
 ```
 
-## Status
+## Example
 
-| Layer | Status |
-|-------|--------|
-| M lexer | 79/79 tests passing |
-| M parser | 175/175 tests passing |
-| M codegen + VM | 64/64 tests passing |
-| M string built-ins | len, char_at, substr, str_concat, str_eq, int_to_str |
-| M self-hosting | in progress — M can tokenize M |
-| Machine VM (C++ prototype) | working |
-| Machine VM (M rewrite) | after self-hosting |
-| Machine AI | future |
+```m
+fn fib(n: i32) -> i32 {
+    if n <= 1 { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() -> i32 {
+    let result: i32 = fib(35);
+    print(int_to_str(result));
+    println("");
+    return 0;
+}
+```
+
+VM: ~1.7s. Native (via M→C transpiler + gcc): ~0.035s. **~48x speedup.**
+
+## Project Structure
+
+```
+m/bootstrap/     C bootstrap compiler (lexer, parser, codegen, vm, bytecode)
+m/generated/     Generated artifacts (self_codegen.c, bootstrap_translated.m)
+m/spec/          M language specification
+examples/        M programs
+  self_codegen.m   M compiler + transpiler (218 functions, 63/63 tests)
+  c_lexer.m        C tokenizer written in M (13/13 tests)
+  c_parser.m       C parser + translator written in M (28/28 tests)
+  self_interp.m    M interpreter written in M (27/27 tests)
+  self_parse.m     M parser written in M
+  bench_fib.m      Fibonacci benchmark
+core/            Memory management (tohum_memory.c)
+include/         Headers
+```
+
+## Roadmap
+
+- [x] M language bootstrap (lexer, parser, codegen, VM)
+- [x] Self-hosting (M compiles M, byte-identical fixed point)
+- [x] M → C transpiler (native executables)
+- [x] C lexer in M (Phase 2)
+- [x] C parser in M (structural + expression/statement)
+- [x] C → M translator (bootstrap self-translation)
+- [x] Escape sequence processing
+- [ ] Temporal VM in M
+- [ ] Linux transition
 
 ## License
 

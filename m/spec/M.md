@@ -1,10 +1,10 @@
-# M Language Specification — v0.1
+# M Language Specification — v0.2
 
 > M: the bone language. Everything above stands on this.
 
 ## Philosophy
 
-M is not a general-purpose language. M exists so that Tohum can exist
+M is not a general-purpose language. M exists so that Machine can exist
 without depending on anything we didn't write. M is minimal, explicit,
 and transparent. No hidden behavior. No magic.
 
@@ -13,51 +13,42 @@ and transparent. No hidden behavior. No magic.
 1. **No hidden allocations.** Every byte of memory is explicitly managed.
 2. **No implicit conversions.** Types don't silently change.
 3. **No exceptions.** Errors are values, returned explicitly.
-4. **No runtime.** M compiles to machine code. No garbage collector, no runtime library.
+4. **No runtime.** M compiles to bytecode or native code. No garbage collector.
 5. **What you write is what runs.** No optimizer rewrites your intent.
 
 ## Types
 
 ### Primitive Types
 
-| Type  | Size    | Description          |
-|-------|---------|----------------------|
-| `u8`  | 1 byte  | Unsigned 8-bit       |
-| `u16` | 2 bytes | Unsigned 16-bit      |
-| `u32` | 4 bytes | Unsigned 32-bit      |
-| `u64` | 8 bytes | Unsigned 64-bit      |
-| `i8`  | 1 byte  | Signed 8-bit         |
-| `i16` | 2 bytes | Signed 16-bit        |
-| `i32` | 4 bytes | Signed 32-bit        |
-| `i64` | 8 bytes | Signed 64-bit        |
-| `f64` | 8 bytes | 64-bit float         |
-| `bool`| 1 byte  | true or false        |
-| `void`| 0 bytes | No value             |
+| Type     | Description          |
+|----------|----------------------|
+| `i32`    | Signed 32-bit integer (default numeric type) |
+| `bool`   | `true` or `false`    |
+| `string` | Immutable string value |
 
-### Pointers
+> Note: M currently operates with these three types. The VM uses 64-bit integers
+> internally. Future versions may add `i64`, `f64`, and unsigned types.
+
+### Dynamic Arrays
 
 ```m
-ptr<u8>       // pointer to u8
-ptr<MyStruct> // pointer to struct
+let arr: array = new_array();
+array_push(arr, 42);
+let val: i32 = array_get(arr, 0);
+let size: i32 = array_len(arr);
 ```
 
-No null pointers by default. A pointer either points to something or it doesn't exist.
-
-### Arrays
-
-```m
-[u8; 256]     // fixed-size array: 256 bytes
-[]u8          // slice: pointer + length (no ownership)
-```
+Arrays hold `i32` values (or string indices). 65536 slots maximum.
 
 ## Declarations
 
 ### Variables
 
 ```m
-let x: i32 = 42;         // immutable by default
-var count: u64 = 0;       // mutable
-let name: []u8 = "tohum"; // string is just a byte slice
+let x: i32 = 42;           // immutable
+var count: i32 = 0;         // mutable
+let name: string = "tohum"; // string
+let flag: bool = true;      // boolean
 ```
 
 ### Functions
@@ -67,51 +58,44 @@ fn add(a: i32, b: i32) -> i32 {
     return a + b;
 }
 
-fn divide(a: f64, b: f64) -> (f64, bool) {
-    if b == 0.0 {
-        return (0.0, false);  // error as value
-    }
-    return (a / b, true);
+fn greet(name: string) -> i32 {
+    print("hello ");
+    println(name);
+    return 0;
 }
 ```
 
-### Structs
+Forward declarations are supported:
 
 ```m
-struct Point {
-    x: f64,
-    y: f64,
+fn helper(x: i32) -> i32;  // forward declaration
+
+fn main() -> i32 {
+    return helper(42);
 }
 
-fn origin() -> Point {
-    return Point { x: 0.0, y: 0.0 };
+fn helper(x: i32) -> i32 {
+    return x * 2;
 }
 ```
 
-## Memory
-
-### Explicit allocation
+### Global Variables
 
 ```m
-let p: ptr<Point> = alloc(Point);  // allocate one Point
-free(p);                            // free it
+var total: i32 = 0;
 
-let arr: ptr<u8> = alloc_n(u8, 1024);  // allocate 1024 bytes
-free_n(arr, u8, 1024);                  // free with size
-```
-
-No malloc/free — M has its own allocation words that track sizes.
-
-### Stack allocation (default)
-
-```m
-let p: Point = origin();  // on the stack, no allocation
+fn increment() -> i32 {
+    total = total + 1;
+    return total;
+}
 ```
 
 ## Control Flow
 
 ```m
 if condition {
+    // ...
+} else if other {
     // ...
 } else {
     // ...
@@ -120,39 +104,116 @@ if condition {
 while condition {
     // ...
 }
-
-// No for loops yet. While is enough.
 ```
+
+Short-circuit evaluation: `&&` and `||` do not evaluate the right operand if unnecessary.
 
 ## Strings
 
-There is no string type. Strings are `[]u8` — byte slices.
-The language provides no string operations built in.
-String utilities are written in M itself, as a library.
+Strings are a built-in type with these operations:
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `len` | `(string) -> i32` | String length |
+| `char_at` | `(string, i32) -> i32` | Character code at index |
+| `substr` | `(string, i32, i32) -> string` | Substring (start, length) |
+| `str_concat` | `(string, string) -> string` | Concatenate two strings |
+| `str_eq` | `(string, string) -> bool` | String equality |
+| `int_to_str` | `(i32) -> string` | Integer to string |
+| `char_to_str` | `(i32) -> string` | Character code to single-char string |
+
+### Escape Sequences
+
+String literals support escape sequences:
+
+| Escape | Value | Description |
+|--------|-------|-------------|
+| `\n`   | 10    | Newline |
+| `\t`   | 9     | Tab |
+| `\r`   | 13    | Carriage return |
+| `\\`   | 92    | Backslash |
+| `\"`   | 34    | Double quote |
+| `\0`   | 0     | Null |
+
+## I/O
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `print` | `(string) -> void` | Print string (no newline) |
+| `println` | `(string) -> void` | Print string with newline |
+| `read_file` | `(string) -> string` | Read entire file contents |
+| `write_file` | `(string, string) -> i32` | Write string to file |
+| `argc` | `() -> i32` | Argument count |
+| `argv` | `(i32) -> string` | Get argument by index |
+
+## Multi-file Programs
+
+```m
+use "library.m"
+
+fn main() -> i32 {
+    // functions from library.m are available here
+    return 0;
+}
+```
+
+The `use` directive includes all declarations from the referenced file.
 
 ## Entry Point
 
 ```m
 fn main() -> i32 {
-    // ...
+    // program starts here
     return 0;
 }
 ```
 
+## Compilation
+
+M programs can be:
+
+1. **Bytecode compiled and run** on the M VM
+2. **Transpiled to C** and compiled to native executables
+
+```bash
+# Bytecode mode (VM)
+mc.exe self_codegen.m program.m
+
+# Transpile to C
+mc.exe self_codegen.m --emit-c program.m output.c
+gcc -O2 -o program output.c
+```
+
+## Self-Hosting
+
+M compiles itself. The compiler (`self_codegen.m`, 218 functions) can:
+
+- Parse M source code into AST
+- Compile AST to bytecode
+- Run bytecode on the VM
+- Transpile AST to C source code
+
+The self-hosting proof: the native-compiled compiler reproduces its own
+C output byte-identically (fixed point).
+
 ## What M Does NOT Have
 
 - No classes, no inheritance, no interfaces
-- No generics (yet — maybe later, if needed)
+- No generics
 - No closures, no lambdas
 - No garbage collector
 - No exceptions, no try/catch
 - No operator overloading
-- No macros (yet)
-- No import system (yet — files are concatenated)
+- No macros
+- No ternary operator
+- No for loops (while is sufficient)
+- No null (use 0 or empty string)
 
 ## Bootstrap Plan
 
-1. First M compiler written in C (minimal, just enough to compile M)
-2. M compiler rewritten in M (self-hosting)
-3. C bootstrap compiler discarded
-4. All future M development happens in M
+1. ~~First M compiler written in C (minimal bootstrap)~~ ✓
+2. ~~M compiler rewritten in M (self-hosting)~~ ✓
+3. ~~Self-hosting proven (byte-identical fixed point)~~ ✓
+4. ~~M reads C code (Phase 2)~~ ✓
+5. Machine VM written in M — next
+6. C bootstrap becomes optional
