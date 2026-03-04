@@ -458,6 +458,81 @@ fn test_c_cross_diff() {
     assert_true("removed C funcs", array_len(rem_fns) > 10);
 }
 
+// ── Tests: Code intelligence ────────────────────────
+
+fn test_caller_count() {
+    println("-- test_caller_count --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    // sp_get is called by many functions
+    let sp_callers: i32 = ana_caller_count("sp_get");
+    assert_true("sp_get has callers", sp_callers > 5);
+
+    // OP_NOP should have no callers (it's an opcode constant)
+    let nop_callers: i32 = ana_caller_count("OP_NOP");
+    // OP_NOP is called by vm_exec
+    assert_true("OP_NOP has >= 1 caller", nop_callers >= 1);
+}
+
+fn test_dead_code() {
+    println("-- test_dead_code --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    let dead: i32 = ana_dead_code();
+    // There should be some "unused" functions (public API)
+    assert_true("some dead code detected", array_len(dead) > 0);
+    // vm_exec should NOT be in dead code (it's called internally)
+    var vm_exec_dead: bool = false;
+    var i: i32 = 0;
+    while i < array_len(dead) {
+        if str_eq(ana_func_name(array_get(dead, i)), "vm_exec") {
+            vm_exec_dead = true;
+        }
+        i = i + 1;
+    }
+    assert_true("vm_exec is not dead code", !vm_exec_dead);
+}
+
+fn test_hotspots() {
+    println("-- test_hotspots --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    let spots: i32 = ana_hotspots(3);
+    assert_eq_i("3 hotspots returned", 3, array_len(spots));
+    // Top hotspot should have multiple callers
+    let top_idx: i32 = array_get(spots, 0);
+    let top_callers: i32 = ana_caller_count(ana_func_name(top_idx));
+    assert_true("top hotspot has > 3 callers", top_callers > 3);
+}
+
+fn test_health_score() {
+    println("-- test_health_score --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    let score: i32 = ana_health_score();
+    let conf: i32 = ana_health_conf();
+    // machine_vm.m should be well-structured (mostly small functions)
+    assert_true("health > 50", score > 50);
+    assert_true("health <= 100", score <= 100);
+    assert_true("confidence > 50", conf > 50);
+}
+
+fn test_intelligence_bindings() {
+    println("-- test_intelligence_bindings --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    ana_populate_intelligence();
+
+    let slot: i32 = env_find("_health");
+    assert_true("_health exists", slot >= 0);
+    let vid: i32 = env_load("_health");
+    assert_true("health is approximate", val_get_conf(vid) < 100);
+    assert_true("health value > 50", val_get_int(vid) > 50);
+
+    let dead_slot: i32 = env_find("_dead_code");
+    assert_true("_dead_code exists", dead_slot >= 0);
+}
+
 // ── Tests: Diff / change detection ──────────────────
 
 fn test_diff_same_file() {
@@ -565,6 +640,13 @@ fn main() -> i32 {
     // Complexity tests
     test_complexity_scores();
     test_complexity_vm_binding();
+
+    // Code intelligence tests
+    test_caller_count();
+    test_dead_code();
+    test_hotspots();
+    test_health_score();
+    test_intelligence_bindings();
 
     // C file analysis tests
     test_analyze_c_vm();

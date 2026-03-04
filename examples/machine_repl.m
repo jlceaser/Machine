@@ -23,6 +23,9 @@
 //   top [N]                   -show N largest functions (default 10)
 //   diff                      -show changes between two analyses
 //   compare <c_file> <m_file> -compare C and M implementations
+//   unused                    -find functions with no callers
+//   hotspots [N]              -show N most-called functions
+//   health                    -code health report with score
 //   stats                     -show code metrics
 //   help                      -show command reference
 //   quit / exit               -exit the shell
@@ -172,6 +175,9 @@ fn show_help() {
     println("    complexity [N]         Show N most complex functions");
     println("    diff                   Show changes between analyses");
     println("    compare <c> <m>        Compare C and M implementations");
+    println("    unused                 Find functions with no callers");
+    println("    hotspots [N]           Show N most-called functions");
+    println("    health                 Code health report with score");
     println("    self                   Machine analyzes itself");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
@@ -1298,6 +1304,251 @@ fn cmd_diff() {
     println("");
 }
 
+fn cmd_unused() {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let dead: i32 = ana_dead_code();
+    let count: i32 = array_len(dead);
+
+    if count == 0 {
+        println("  No unused functions detected.");
+        println("  (main, test_, OP_, VT_, ANA_ prefixes are excluded)");
+        return;
+    }
+
+    print("  Potentially unused functions (");
+    print(int_to_str(count));
+    println("):");
+    println("  (No other function in this file calls these)");
+    println("");
+
+    var i: i32 = 0;
+    while i < count {
+        let idx: i32 = array_get(dead, i);
+        print("    ");
+        print(ana_func_name(idx));
+        print("  ");
+        print(int_to_str(ana_func_lines(idx)));
+        print("L  ");
+        let cc: i32 = ana_func_call_count(idx);
+        if cc > 0 {
+            print("calls ");
+            print(int_to_str(cc));
+            print(" others");
+        } else {
+            print("leaf function");
+        }
+        println("");
+        i = i + 1;
+    }
+
+    println("");
+    let ratio: i32 = count * 100 / ana_get_func_count();
+    print("  ");
+    print(int_to_str(ratio));
+    println("% of functions have no internal callers.");
+}
+
+fn cmd_hotspots(args: string) {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let trimmed: string = str_trim(args);
+    var n: i32 = 10;
+    if len(trimmed) > 0 && is_number(trimmed) {
+        n = str_to_int(trimmed);
+        if n <= 0 { n = 10; }
+    }
+    if n > ana_get_func_count() { n = ana_get_func_count(); }
+
+    println("  Hotspots (most-called functions):");
+    println("  Functions that many others depend on.");
+    println("");
+
+    let spots: i32 = ana_hotspots(n);
+    var i: i32 = 0;
+    while i < array_len(spots) {
+        let idx: i32 = array_get(spots, i);
+        let name: string = ana_func_name(idx);
+        let callers: i32 = ana_caller_count(name);
+
+        if callers == 0 {
+            i = array_len(spots);  // stop showing zero-caller functions
+        } else {
+            print("    ");
+            print(int_to_str(i + 1));
+            print(". ");
+            print(name);
+            print("  <- ");
+            print(int_to_str(callers));
+            print(" callers  ");
+            print(int_to_str(ana_func_lines(idx)));
+            println("L");
+            i = i + 1;
+        }
+    }
+    println("");
+}
+
+fn cmd_health() {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let score: i32 = ana_health_score();
+    let conf: i32 = ana_health_conf();
+
+    println("");
+    println("  Code Health Report");
+    println("  ══════════════════════════════════════");
+    print("  File: ");
+    println(ana_get_file());
+    print("  Functions: ");
+    print(int_to_str(ana_get_func_count()));
+    print("  Lines: ");
+    println(int_to_str(ana_get_lines()));
+    println("");
+
+    // Overall score
+    print("  Health: ~");
+    print(int_to_str(score));
+    print("/100 (conf:");
+    print(int_to_str(conf));
+    println("%)");
+
+    // Grade
+    print("  Grade: ");
+    if score >= 80 { println("A — well-structured"); }
+    else if score >= 65 { println("B — good, minor issues"); }
+    else if score >= 50 { println("C — acceptable, some concerns"); }
+    else if score >= 35 { println("D — needs attention"); }
+    else { println("F — significant restructuring needed"); }
+    println("");
+
+    // Size distribution summary
+    var tiny: i32 = 0;
+    var small: i32 = 0;
+    var medium: i32 = 0;
+    var large: i32 = 0;
+    var huge: i32 = 0;
+    var i: i32 = 0;
+    while i < ana_get_func_count() {
+        let l: i32 = ana_func_lines(i);
+        if l <= 1 { tiny = tiny + 1; }
+        else if l <= 5 { small = small + 1; }
+        else if l <= 20 { medium = medium + 1; }
+        else if l <= 50 { large = large + 1; }
+        else { huge = huge + 1; }
+        i = i + 1;
+    }
+    println("  Structure:");
+    print("    tiny (1L):     ");
+    print(int_to_str(tiny));
+    print("  (");
+    print(int_to_str(tiny * 100 / ana_get_func_count()));
+    println("%)");
+    print("    small (2-5L):  ");
+    print(int_to_str(small));
+    print("  (");
+    print(int_to_str(small * 100 / ana_get_func_count()));
+    println("%)");
+    print("    medium (6-20): ");
+    print(int_to_str(medium));
+    print("  (");
+    print(int_to_str(medium * 100 / ana_get_func_count()));
+    println("%)");
+    print("    large (21-50): ");
+    print(int_to_str(large));
+    print("  (");
+    print(int_to_str(large * 100 / ana_get_func_count()));
+    println("%)");
+    print("    huge (50+):    ");
+    print(int_to_str(huge));
+    print("  (");
+    print(int_to_str(huge * 100 / ana_get_func_count()));
+    println("%)");
+
+    // Warnings
+    println("");
+    println("  Findings:");
+    var warnings: i32 = 0;
+
+    // Large functions warning
+    if huge > 0 {
+        warnings = warnings + 1;
+        print("    ! ");
+        print(int_to_str(huge));
+        print(" function");
+        if huge > 1 { print("s"); }
+        print(" over 50 lines: ");
+        var shown: i32 = 0;
+        i = 0;
+        while i < ana_get_func_count() {
+            if ana_func_lines(i) > 50 && shown < 3 {
+                if shown > 0 { print(", "); }
+                print(ana_func_name(i));
+                print("(");
+                print(int_to_str(ana_func_lines(i)));
+                print("L)");
+                shown = shown + 1;
+            }
+            i = i + 1;
+        }
+        if huge > 3 {
+            print(" +");
+            print(int_to_str(huge - 3));
+            print(" more");
+        }
+        println("");
+    }
+
+    // Dead code warning
+    let dead: i32 = ana_dead_code();
+    let dead_count: i32 = array_len(dead);
+    if dead_count > 0 {
+        warnings = warnings + 1;
+        print("    ! ");
+        print(int_to_str(dead_count));
+        print(" function");
+        if dead_count > 1 { print("s"); }
+        println(" with no callers (use 'unused' for details)");
+    }
+
+    // Hotspot warning (functions called by > 30% of all functions)
+    var hot_count: i32 = 0;
+    i = 0;
+    while i < ana_get_func_count() {
+        let cc: i32 = ana_caller_count(ana_func_name(i));
+        if cc > ana_get_func_count() / 3 {
+            hot_count = hot_count + 1;
+        }
+        i = i + 1;
+    }
+    if hot_count > 0 {
+        warnings = warnings + 1;
+        print("    ! ");
+        print(int_to_str(hot_count));
+        println(" critical hotspot(s) (called by >33% of functions)");
+    }
+
+    // All good
+    if warnings == 0 {
+        println("    No significant issues detected.");
+    }
+
+    // Populate VM
+    ana_populate_intelligence();
+    println("");
+    println("  Results bound to VM: load _health, load _dead_code");
+    println("");
+}
+
 fn cmd_search(args: string) {
     let pattern: string = str_trim(args);
     if len(pattern) == 0 {
@@ -1806,6 +2057,13 @@ fn main() -> i32 {
             else { cmd_complexity(""); }
         } else if str_eq(line, "diff") {
             cmd_diff();
+        } else if str_eq(line, "unused") {
+            cmd_unused();
+        } else if str_eq(line, "hotspots") || str_starts_with(line, "hotspots ") {
+            if len(line) > 9 { cmd_hotspots(substr(line, 9, len(line) - 9)); }
+            else { cmd_hotspots(""); }
+        } else if str_eq(line, "health") {
+            cmd_health();
         } else if str_starts_with(line, "compare ") {
             cmd_compare(substr(line, 8, len(line) - 8));
         } else if str_eq(line, "self") {

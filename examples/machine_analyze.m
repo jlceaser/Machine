@@ -1157,6 +1157,159 @@ fn ana_diff_call_delta(func_name: string) -> i32 {
     return ana_func_call_count(cur_idx) - ana_prev_func_calls(prev_idx);
 }
 
+// ── Code intelligence ───────────────────────────────
+// Machine doesn't just read code — it forms opinions.
+// Caller analysis, dead code detection, hotspot identification.
+
+// Count how many functions call a given function (fan-in).
+fn ana_caller_count(func_name: string) -> i32 {
+    var count: i32 = 0;
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        let ncalls: i32 = ana_func_call_count(i);
+        var j: i32 = 0;
+        while j < ncalls {
+            if str_eq(ana_func_call_name(i, j), func_name) {
+                count = count + 1;
+                j = ncalls;  // break inner loop
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+// Get functions with zero callers (potential dead code).
+// Excludes "main" and functions starting with "test_" or "OP_".
+// Returns array of function indices.
+fn ana_dead_code() -> i32 {
+    var result: i32 = array_new(0);
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        let name: string = ana_func_name(i);
+        // Skip main, test_, OP_ (constants), assert_ (test helpers)
+        var skip: bool = false;
+        if str_eq(name, "main") { skip = true; }
+        if len(name) >= 5 && str_eq(substr(name, 0, 5), "test_") { skip = true; }
+        if len(name) >= 3 && str_eq(substr(name, 0, 3), "OP_") { skip = true; }
+        if len(name) >= 7 && str_eq(substr(name, 0, 7), "assert_") { skip = true; }
+        if len(name) >= 3 && str_eq(substr(name, 0, 3), "VT_") { skip = true; }
+        if len(name) >= 4 && str_eq(substr(name, 0, 4), "ANA_") { skip = true; }
+        if len(name) >= 4 && str_eq(substr(name, 0, 4), "CTK_") { skip = true; }
+
+        if !skip {
+            let callers: i32 = ana_caller_count(name);
+            if callers == 0 {
+                array_push(result, i);
+            }
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// Get the N most-called functions (hotspots).
+// Returns array of function indices, sorted by caller count descending.
+fn ana_hotspots(n: i32) -> i32 {
+    var result: i32 = array_new(0);
+    var used: i32 = array_new(0);
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        array_push(used, 0);
+        i = i + 1;
+    }
+
+    var rank: i32 = 0;
+    while rank < n && rank < ana_fn_count {
+        var best_idx: i32 = 0 - 1;
+        var best_count: i32 = 0 - 1;
+        i = 0;
+        while i < ana_fn_count {
+            if array_get(used, i) == 0 {
+                let cc: i32 = ana_caller_count(ana_func_name(i));
+                if cc > best_count {
+                    best_count = cc;
+                    best_idx = i;
+                }
+            }
+            i = i + 1;
+        }
+        if best_idx < 0 { rank = n; }  // no more
+        else {
+            array_set(used, best_idx, 1);
+            array_push(result, best_idx);
+            rank = rank + 1;
+        }
+    }
+    return result;
+}
+
+// Compute a code health score (0-100) for the analyzed file.
+// Considers: function size distribution, complexity spread, dead code ratio.
+// Returns an approximate score with confidence.
+fn ana_health_score() -> i32 {
+    if ana_fn_count == 0 { return 0; }
+
+    // Factor 1: Size balance (prefer many small functions over few huge ones)
+    // Score: % of functions that are "small" (1-20 lines)
+    var small_count: i32 = 0;
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        if ana_func_lines(i) <= 20 { small_count = small_count + 1; }
+        i = i + 1;
+    }
+    var size_score: i32 = small_count * 100 / ana_fn_count;
+    if size_score > 40 { size_score = 40; }  // max 40 points
+
+    // Factor 2: No mega-functions (penalty for functions > 200 lines)
+    var mega_penalty: i32 = 0;
+    i = 0;
+    while i < ana_fn_count {
+        if ana_func_lines(i) > 200 {
+            mega_penalty = mega_penalty + 10;
+        } else if ana_func_lines(i) > 100 {
+            mega_penalty = mega_penalty + 5;
+        }
+        i = i + 1;
+    }
+    if mega_penalty > 30 { mega_penalty = 30; }
+    var structure_score: i32 = 30 - mega_penalty;  // max 30 points
+
+    // Factor 3: Low dead code ratio
+    let dead: i32 = ana_dead_code();
+    let dead_count: i32 = array_len(dead);
+    var dead_ratio: i32 = 0;
+    if ana_fn_count > 0 {
+        dead_ratio = dead_count * 100 / ana_fn_count;
+    }
+    var dead_score: i32 = 30;
+    if dead_ratio > 30 { dead_score = 10; }
+    else if dead_ratio > 15 { dead_score = 20; }
+
+    return size_score + structure_score + dead_score;
+}
+
+fn ana_health_conf() -> i32 {
+    // More functions = more confident in the assessment
+    if ana_fn_count < 5 { return 50; }
+    if ana_fn_count < 20 { return 70; }
+    if ana_fn_count < 50 { return 85; }
+    return 80;  // very large codebases are hard to assess structurally
+}
+
+// Populate VM with code intelligence bindings
+fn ana_populate_intelligence() {
+    let tick: i32 = vm_get_tick();
+
+    let dead: i32 = ana_dead_code();
+    env_bind("_dead_code", val_i32(array_len(dead)), tick, "intelligence");
+
+    let health: i32 = ana_health_score();
+    let conf: i32 = ana_health_conf();
+    env_bind("_health", val_approx(health, conf), tick, "intelligence");
+}
+
 // ── Cross-file dependency analysis ──────────────────
 // Recursively follows `use` directives and builds a project-wide view.
 //
