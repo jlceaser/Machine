@@ -65,9 +65,13 @@ machine> callers env_find
     <- env_bind, env_load, env_forget, env_get_timeline, env_is_forgotten, vm_exec
 ```
 
-### Machine AI — The Mind (future)
+### Machine AI — The Mind (in progress)
 
-A reasoning engine built on Machine VM primitives: temporal memory, uncertainty, persistence, self-reflection.
+Machine doesn't just read code — it reasons about it. Built on VM primitives: temporal memory, uncertainty, self-reflection.
+
+**Working today:** analyze → health → suggest → explain → audit. Machine classifies functions (constant/utility/core/interface/test), scores risk, detects patterns (dispatcher, accessor, orchestrator), generates improvement suggestions, and produces narrative summaries.
+
+**Coming:** temporal reasoning across sessions, intent understanding, cross-language knowledge transfer.
 
 ## Current Status
 
@@ -202,9 +206,23 @@ machine> focus vm_exec
 machine> suggest
   [HIGH] SPLIT vm_exec — 411 lines
   [HIGH] EXTRACT vm_exec — 72 functions, high fan-out
-  [MEDIUM] SPLIT vm_deserialize — 132 lines
   [LOW] REMOVE vm_snapshot — no callers found
   Total: 16 suggestions (2 high, 2 medium, 12 low)
+
+machine> explain vm_exec
+  vm_exec is a core function — central to this file's purpose.
+  It is massive (411 lines).
+  It depends on 72 other functions: array_get, OP_NOP, OP_HALT and 69 more.
+  Pattern: dispatcher — large function routing to many smaller ones.
+
+machine> audit
+  1. HEALTH: ~85/100 (conf:80%) [PASS]
+  2. SIZE BALANCE: 2 large functions (543 lines, 46%) [WARN]
+  3. DEAD CODE: 12 functions (12%) [WARN]
+  4. COUPLING: no mutual dependencies [PASS]
+  5. HOTSPOTS: no critical hotspots [PASS]
+  6. ARCHITECTURE: well-layered [PASS]
+  VERDICT: GOOD — minor issues, low risk
 ```
 
 ## Self-Hosting Proof
@@ -313,7 +331,7 @@ include/              Headers
 - [x] Complexity scoring with uncertainty
 - [x] C vs M structural comparison
 - [x] Code intelligence (health scoring, dead code, hotspots)
-- [x] Code reasoning (suggest, focus, summary, coupling)
+- [x] Code reasoning (suggest, focus, summary, coupling, explain, audit, map)
 - [ ] Linux transition
 
 ## License
