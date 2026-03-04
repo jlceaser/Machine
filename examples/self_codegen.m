@@ -2033,20 +2033,36 @@ fn str_contains(haystack: string, needle: string) -> i32 {
 
 var c_fn_names: i32 = 0;
 var c_fn_rets: i32 = 0;
+var c_fn_pcounts: i32 = 0;
+var c_fn_poffsets: i32 = 0;
+var c_fn_ptypes: i32 = 0;
 var c_vr_names: i32 = 0;
 var c_vr_types: i32 = 0;
+var c_current_fn_ret: string = "";
 
 fn init_c_types() -> i32 {
     c_fn_names = array_new(0);
     c_fn_rets = array_new(0);
+    c_fn_pcounts = array_new(0);
+    c_fn_poffsets = array_new(0);
+    c_fn_ptypes = array_new(0);
     c_vr_names = array_new(0);
     c_vr_types = array_new(0);
     return 0;
 }
 
-fn c_add_func(name: string, ret: string) -> i32 {
+fn c_add_func(name: string, ret: string, pstart: i32, pcount: i32) -> i32 {
     array_push(c_fn_names, name);
     array_push(c_fn_rets, ret);
+    let offset: i32 = array_len(c_fn_ptypes);
+    array_push(c_fn_poffsets, offset);
+    array_push(c_fn_pcounts, pcount);
+    var pi: i32 = 0;
+    while pi < pcount {
+        let pnode: i32 = child(pstart, pi);
+        array_push(c_fn_ptypes, nt(pnode));
+        pi = pi + 1;
+    }
     return 0;
 }
 
@@ -2083,6 +2099,22 @@ fn c_clear_vars() -> i32 {
     c_vr_names = array_new(0);
     c_vr_types = array_new(0);
     return 0;
+}
+
+fn c_func_param_type(name: string, pidx: i32) -> string {
+    var i: i32 = 0;
+    while i < array_len(c_fn_names) {
+        if str_eq(array_get(c_fn_names, i), name) {
+            let count: i32 = array_get(c_fn_pcounts, i);
+            if pidx < count {
+                let offset: i32 = array_get(c_fn_poffsets, i);
+                return array_get(c_fn_ptypes, offset + pidx);
+            }
+            return "i32";
+        }
+        i = i + 1;
+    }
+    return "i32";
 }
 
 fn infer_type(idx: i32) -> string {
@@ -2125,7 +2157,7 @@ fn infer_type(idx: i32) -> string {
 fn gen_c_str_arg(idx: i32) -> string {
     let expr: string = gen_c_expr(idx);
     if str_eq(infer_type(idx), "string") { return expr; }
-    return cc("(const char*)", expr);
+    return cc("(const char*)(", cc(expr, ")"));
 }
 
 fn gen_c_expr(idx: i32) -> string {
@@ -2208,7 +2240,7 @@ fn gen_c_expr(idx: i32) -> string {
 
         // Built-in: len
         if str_eq(name, "len") {
-            if argc >= 1 { return cc("(int)strlen(", cc(gen_c_expr(child(arg_start, 0)), ")")); }
+            if argc >= 1 { return cc("(int)strlen(", cc(gen_c_str_arg(child(arg_start, 0)), ")")); }
             return "0";
         }
 
@@ -2237,7 +2269,7 @@ fn gen_c_expr(idx: i32) -> string {
         // Built-in: char_at
         if str_eq(name, "char_at") {
             if argc >= 2 {
-                return cc("(int)", cc(gen_c_expr(child(arg_start, 0)), cc("[", cc(gen_c_expr(child(arg_start, 1)), "]"))));
+                return cc("(int)", cc(gen_c_str_arg(child(arg_start, 0)), cc("[", cc(gen_c_expr(child(arg_start, 1)), "]"))));
             }
             return "0";
         }
@@ -2245,7 +2277,7 @@ fn gen_c_expr(idx: i32) -> string {
         // Built-in: substr — requires runtime helper
         if str_eq(name, "substr") {
             if argc >= 3 {
-                return cc("m_substr(", cc(gen_c_expr(child(arg_start, 0)), cc(", ", cc(gen_c_expr(child(arg_start, 1)), cc(", ", cc(gen_c_expr(child(arg_start, 2)), ")"))))));
+                return cc("m_substr(", cc(gen_c_str_arg(child(arg_start, 0)), cc(", ", cc(gen_c_expr(child(arg_start, 1)), cc(", ", cc(gen_c_expr(child(arg_start, 2)), ")"))))));
             }
             return "\"\"";
         }
@@ -2269,15 +2301,31 @@ fn gen_c_expr(idx: i32) -> string {
             return "0";
         }
 
-        // Built-in: array_get — cast result based on context
-        // (handled at usage sites via infer_type)
+        // Built-in: array_set — cast string args to long long
+        if str_eq(name, "array_set") {
+            if argc >= 3 {
+                let val_arg: i32 = child(arg_start, 2);
+                let val_type: string = infer_type(val_arg);
+                if str_eq(val_type, "string") {
+                    return cc("array_set(", cc(gen_c_expr(child(arg_start, 0)), cc(", ", cc(gen_c_expr(child(arg_start, 1)), cc(", (long long)", cc(gen_c_expr(val_arg), ")"))))));
+                }
+                return cc("array_set(", cc(gen_c_expr(child(arg_start, 0)), cc(", ", cc(gen_c_expr(child(arg_start, 1)), cc(", ", cc(gen_c_expr(val_arg), ")"))))));
+            }
+            return "0";
+        }
 
-        // Regular function call
+        // Regular function call — with parameter type casting
         var result: string = cc(name, "(");
         var i: i32 = 0;
         while i < argc {
             if i > 0 { result = cc(result, ", "); }
-            result = cc(result, gen_c_expr(child(arg_start, i)));
+            let arg_node: i32 = child(arg_start, i);
+            var arg_expr: string = gen_c_expr(arg_node);
+            let pt: string = c_func_param_type(name, i);
+            if str_eq(pt, "string") && !str_eq(infer_type(arg_node), "string") {
+                arg_expr = cc("(const char*)(", cc(arg_expr, ")"));
+            }
+            result = cc(result, arg_expr);
             i = i + 1;
         }
         return cc(result, ")");
@@ -2300,7 +2348,11 @@ fn gen_c_stmt(idx: i32, level: i32) -> string {
         let type_str: string = c_type(vt);
         let init: i32 = nd(idx);
         if init >= 0 {
-            return cc(ind, cc(type_str, cc(" ", cc(name, cc(" = ", cc(gen_c_expr(init), ";\n"))))));
+            let iexpr: string = gen_c_expr(init);
+            if str_eq(vt, "string") && !str_eq(infer_type(init), "string") {
+                return cc(ind, cc(type_str, cc(" ", cc(name, cc(" = (const char*)(", cc(iexpr, ");\n"))))));
+            }
+            return cc(ind, cc(type_str, cc(" ", cc(name, cc(" = ", cc(iexpr, ";\n"))))));
         }
         if str_eq(vt, "string") {
             return cc(ind, cc(type_str, cc(" ", cc(name, " = \"\";\n"))));
@@ -2311,13 +2363,22 @@ fn gen_c_stmt(idx: i32, level: i32) -> string {
     if kind == NK_ASSIGN() {
         let target: i32 = nd(idx);
         let val: i32 = ne(idx);
-        return cc(ind, cc(nn(target), cc(" = ", cc(gen_c_expr(val), ";\n"))));
+        let vexpr: string = gen_c_expr(val);
+        let ttype: string = c_var_type(nn(target));
+        if str_eq(ttype, "string") && !str_eq(infer_type(val), "string") {
+            return cc(ind, cc(nn(target), cc(" = (const char*)(", cc(vexpr, ");\n"))));
+        }
+        return cc(ind, cc(nn(target), cc(" = ", cc(vexpr, ";\n"))));
     }
 
     if kind == NK_RETURN() {
         let val: i32 = nd(idx);
         if val >= 0 {
-            return cc(ind, cc("return ", cc(gen_c_expr(val), ";\n")));
+            let rexpr: string = gen_c_expr(val);
+            if str_eq(c_current_fn_ret, "string") && !str_eq(infer_type(val), "string") {
+                return cc(ind, cc("return (const char*)(", cc(rexpr, ");\n")));
+            }
+            return cc(ind, cc("return ", cc(rexpr, ";\n")));
         }
         return cc(ind, "return;\n");
     }
@@ -2373,6 +2434,9 @@ fn gen_c_func(idx: i32) -> string {
     let param_count: i32 = ne2(idx);
     let ret_type: string = c_type(nt(idx));
 
+    // Track current function return type for cast generation
+    c_current_fn_ret = nt(idx);
+
     // Register param types for type inference
     c_clear_vars();
     var i: i32 = 0;
@@ -2382,8 +2446,12 @@ fn gen_c_func(idx: i32) -> string {
         i = i + 1;
     }
 
+    // Rename main to m_main (C main wrapper generated separately)
+    var cname: string = name;
+    if str_eq(name, "main") { cname = "m_main"; }
+
     // Build signature
-    var sig: string = cc(ret_type, cc(" ", cc(name, "(")));
+    var sig: string = cc(ret_type, cc(" ", cc(cname, "(")));
     if param_count == 0 {
         sig = cc(sig, "void");
     } else {
@@ -2418,40 +2486,34 @@ fn gen_c_func(idx: i32) -> string {
 // ── C program generation ────────────────────────────
 
 fn c_runtime() -> string {
-    var r: string = "// M runtime — strings\n";
-    r = cc(r, "static char _str_buf[262144];\n");
-    r = cc(r, "static int _str_off = 0;\n");
+    var r: string = "// M runtime — strings (malloc-based)\n";
     r = cc(r, "static const char* m_str_alloc(const char* s, int len) {\n");
-    r = cc(r, "    char* p = _str_buf + _str_off;\n");
+    r = cc(r, "    char* p = (char*)malloc(len + 1);\n");
     r = cc(r, "    memcpy(p, s, len); p[len] = 0;\n");
-    r = cc(r, "    _str_off += len + 1;\n");
     r = cc(r, "    return p;\n");
     r = cc(r, "}\n");
     r = cc(r, "static const char* m_str_concat(const char* a, const char* b) {\n");
     r = cc(r, "    int la = strlen(a), lb = strlen(b);\n");
-    r = cc(r, "    char* p = _str_buf + _str_off;\n");
+    r = cc(r, "    char* p = (char*)malloc(la + lb + 1);\n");
     r = cc(r, "    memcpy(p, a, la); memcpy(p+la, b, lb); p[la+lb] = 0;\n");
-    r = cc(r, "    _str_off += la + lb + 1;\n");
     r = cc(r, "    return p;\n");
     r = cc(r, "}\n");
     r = cc(r, "static const char* m_substr(const char* s, int start, int len) {\n");
     r = cc(r, "    return m_str_alloc(s + start, len);\n");
     r = cc(r, "}\n");
     r = cc(r, "static const char* m_int_to_str(int n) {\n");
-    r = cc(r, "    char* p = _str_buf + _str_off;\n");
-    r = cc(r, "    int len = sprintf(p, \"%d\", n);\n");
-    r = cc(r, "    _str_off += len + 1;\n");
+    r = cc(r, "    char* p = (char*)malloc(32);\n");
+    r = cc(r, "    sprintf(p, \"%d\", n);\n");
     r = cc(r, "    return p;\n");
     r = cc(r, "}\n");
     r = cc(r, "static const char* m_char_to_str(int c) {\n");
-    r = cc(r, "    char* p = _str_buf + _str_off;\n");
+    r = cc(r, "    char* p = (char*)malloc(2);\n");
     r = cc(r, "    p[0] = (char)c; p[1] = 0;\n");
-    r = cc(r, "    _str_off += 2;\n");
     r = cc(r, "    return p;\n");
     r = cc(r, "}\n\n");
     r = cc(r, "// M runtime — arrays (dynamic, long long values)\n");
     r = cc(r, "typedef struct { long long* data; int len; int cap; } MArray;\n");
-    r = cc(r, "static MArray _arrays[4096];\n");
+    r = cc(r, "static MArray _arrays[65536];\n");
     r = cc(r, "static int _arr_count = 0;\n");
     r = cc(r, "static int array_new(int cap) {\n");
     r = cc(r, "    int id = _arr_count++;\n");
@@ -2468,6 +2530,27 @@ fn c_runtime() -> string {
     r = cc(r, "static long long array_get(int id, int idx) { return _arrays[id].data[idx]; }\n");
     r = cc(r, "static void array_set(int id, int idx, long long val) { _arrays[id].data[idx] = val; }\n");
     r = cc(r, "static int array_len(int id) { return _arrays[id].len; }\n\n");
+    r = cc(r, "// M runtime — system builtins\n");
+    r = cc(r, "static int _m_argc;\n");
+    r = cc(r, "static char** _m_argv;\n");
+    r = cc(r, "static int argc(void) { return _m_argc; }\n");
+    r = cc(r, "static const char* argv(int n) { return _m_argv[n]; }\n");
+    r = cc(r, "static const char* read_file(const char* path) {\n");
+    r = cc(r, "    FILE* f = fopen(path, \"rb\");\n");
+    r = cc(r, "    if (!f) return \"\";\n");
+    r = cc(r, "    fseek(f, 0, SEEK_END);\n");
+    r = cc(r, "    long sz = ftell(f);\n");
+    r = cc(r, "    fseek(f, 0, SEEK_SET);\n");
+    r = cc(r, "    char* buf = (char*)malloc(sz + 1);\n");
+    r = cc(r, "    fread(buf, 1, sz, f);\n");
+    r = cc(r, "    buf[sz] = 0;\n");
+    r = cc(r, "    fclose(f);\n");
+    r = cc(r, "    return buf;\n");
+    r = cc(r, "}\n");
+    r = cc(r, "static void write_file(const char* path, const char* content) {\n");
+    r = cc(r, "    FILE* f = fopen(path, \"wb\");\n");
+    r = cc(r, "    if (f) { fputs(content, f); fclose(f); }\n");
+    r = cc(r, "}\n\n");
     return r;
 }
 
@@ -2481,7 +2564,7 @@ fn gen_c_program(root: i32) -> string {
     while i < count {
         let decl: i32 = child(start, i);
         if nk(decl) == NK_FN_DECL() {
-            c_add_func(nn(decl), nt(decl));
+            c_add_func(nn(decl), nt(decl), ne(decl), ne2(decl));
         }
         if nk(decl) == NK_VAR_DECL() {
             c_add_var(nn(decl), nt(decl));
@@ -2552,6 +2635,13 @@ fn gen_c_program(root: i32) -> string {
         }
         i = i + 1;
     }
+
+    // C main wrapper — initializes argc/argv, calls m_main
+    result = cc(result, "\nint main(int argc, char** argv) {\n");
+    result = cc(result, "    _m_argc = argc;\n");
+    result = cc(result, "    _m_argv = argv;\n");
+    result = cc(result, "    return m_main();\n");
+    result = cc(result, "}\n");
 
     return result;
 }
@@ -3007,6 +3097,32 @@ fn main() -> i32 {
         println("  OK  self-pipeline (M-compiled compiler processes 7*6=42)");
     } else {
         println("  FAIL self-pipeline");
+    }
+
+    // ── Self-hosting test: M transpiles itself to C ──
+    tests_run = tests_run + 1;
+    var sh_ok: i32 = 0;
+    let sh_src: string = read_file("examples/self_codegen.m");
+    if len(sh_src) > 0 {
+        init_use_system();
+        let sh_resolved: string = resolve_uses(sh_src, "examples/");
+        init_ast();
+        tokenize(sh_resolved);
+        let sh_root: i32 = parse_program();
+        let sh_c: string = gen_c_program(sh_root);
+        // Generated C should be substantial (>3000 lines = >3000 newlines)
+        if len(sh_c) > 100000 {
+            // Check for key markers
+            if str_contains(sh_c, "m_main") && str_contains(sh_c, "_m_argc") && str_contains(sh_c, "m_str_concat") {
+                sh_ok = 1;
+            }
+        }
+    }
+    if sh_ok == 1 {
+        tests_passed = tests_passed + 1;
+        println("  OK  self-hosting (M transpiles itself to C)");
+    } else {
+        println("  FAIL self-hosting");
     }
 
     println("");
