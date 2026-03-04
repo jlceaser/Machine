@@ -85,9 +85,9 @@ A reasoning engine built on Machine VM primitives: temporal memory, uncertainty,
 | Machine VM | **working** | 89/89 |
 | Machine assembler | **working** | 27/27 |
 | Machine REPL | **working** | Interactive shell + expression eval |
-| Code analyzer | **working** | 125/125 |
+| Code analyzer | **working** | 147/147 |
 
-**Total: 304 tests passing across 4 test suites.**
+**Total: 326 tests passing across 4 test suites.**
 
 ## Phase 3: Machine Reads Code
 
@@ -164,7 +164,7 @@ machine> complexity 3
   3. vm_serialize  ~49 (conf:90%)   42L  14 calls
 ```
 
-Code intelligence — Machine forms opinions:
+Code intelligence — Machine reasons about code:
 ```
 machine> health
   Health: 85/100 (Grade A)  conf:80%
@@ -185,6 +185,26 @@ machine> hotspots 3
 machine> unused
   12 functions with no callers:
     vm_snapshot, vm_rollback, vm_serialize ...
+
+machine> summary
+  Scale: medium system (95 functions, 1168 lines, 26 globals)
+  Architecture: 46 constants, 35 utilities, 5 core, 9 interfaces
+  Spine: vm_exec (411L, risk:65), vm_deserialize (132L, risk:60)
+  Health: ~85/100 — well-structured
+
+machine> focus vm_exec
+  Role: core  Lines: 411  Calls: 72  Callers: 1
+  Risk: ~65/100  ! MEDIUM — test after changes
+  Called by: vm_run
+  Suggestion: SPLIT — 411 lines is too large
+  Suggestion: EXTRACT — 72 callees, high fan-out
+
+machine> suggest
+  [HIGH] SPLIT vm_exec — 411 lines
+  [HIGH] EXTRACT vm_exec — 72 functions, high fan-out
+  [MEDIUM] SPLIT vm_deserialize — 132 lines
+  [LOW] REMOVE vm_snapshot — no callers found
+  Total: 16 suggestions (2 high, 2 medium, 12 low)
 ```
 
 ## Self-Hosting Proof
@@ -266,7 +286,7 @@ examples/
   machine_asm.m         Text assembler for VM (27/27 tests)
   machine_repl.m        Interactive temporal computing shell
   machine_analyze.m     M + C source code analyzer (Phase C)
-  machine_analyze_test.m  Analyzer tests (125/125)
+  machine_analyze_test.m  Analyzer tests (147/147)
   c_lexer.m             C tokenizer written in M (13/13 tests)
   c_parser.m            C parser + translator written in M (28/28 tests)
   self_interp.m         M interpreter written in M (27/27 tests)
@@ -286,13 +306,14 @@ include/              Headers
 - [x] Machine VM — temporal computation engine (89/89 tests)
 - [x] Machine assembler — text-to-bytecode (27/27 tests)
 - [x] Machine REPL — interactive temporal computing shell
-- [x] Code analyzer — M + C file analysis (125/125 tests)
+- [x] Code analyzer — M + C file analysis (147/147 tests)
 - [x] Cross-file analysis in REPL (dependencies, where, project)
 - [x] C file analysis via temporal VM (C structure extraction)
 - [x] Diff/change detection (new/removed/changed functions)
 - [x] Complexity scoring with uncertainty
 - [x] C vs M structural comparison
 - [x] Code intelligence (health scoring, dead code, hotspots)
+- [x] Code reasoning (suggest, focus, summary, coupling)
 - [ ] Linux transition
 
 ## License
