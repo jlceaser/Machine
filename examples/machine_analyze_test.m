@@ -320,6 +320,49 @@ fn test_file_func_names() {
     assert_eq_s("first vm func", "OP_NOP", ana_all_file_func_name(vm_fi, 0));
 }
 
+// ── Tests: Complexity scoring ────────────────────────
+
+fn test_complexity_scores() {
+    println("-- test_complexity_scores --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+
+    // OP_NOP: 1-line, no calls, no params -> low complexity
+    let nop_idx: i32 = ana_find_func("OP_NOP");
+    assert_true("OP_NOP complexity < 20", ana_func_complexity(nop_idx) < 20);
+
+    // vm_exec: 411 lines, 72 calls -> high complexity
+    let exec_idx: i32 = ana_find_func("vm_exec");
+    assert_true("vm_exec complexity > 80", ana_func_complexity(exec_idx) > 80);
+
+    // Confidence: small func = lower confidence, medium = higher
+    let nop_conf: i32 = ana_func_complexity_conf(nop_idx);
+    let bind_idx: i32 = ana_find_func("env_bind");
+    let bind_conf: i32 = ana_func_complexity_conf(bind_idx);
+    assert_true("OP_NOP conf <= 60", nop_conf <= 60);
+    assert_true("env_bind conf >= 80", bind_conf >= 80);
+
+    // vm_exec: huge -> reduced confidence
+    let exec_conf: i32 = ana_func_complexity_conf(exec_idx);
+    assert_true("vm_exec conf < 80", exec_conf < 80);
+}
+
+fn test_complexity_vm_binding() {
+    println("-- test_complexity_vm_binding --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    ana_populate_complexity();
+
+    // Check that complexity bindings exist as approximate values
+    let slot: i32 = env_find("fn.vm_exec.complexity");
+    assert_true("complexity binding exists", slot >= 0);
+
+    let vid: i32 = env_load("fn.vm_exec.complexity");
+    let conf: i32 = val_get_conf(vid);
+    assert_true("complexity is approximate", conf < 100);
+    assert_true("complexity value > 80", val_get_int(vid) > 80);
+}
+
 // ── Run all tests ────────────────────────────────────
 
 fn main() -> i32 {
@@ -344,6 +387,10 @@ fn main() -> i32 {
     test_who_defines();
     test_external_calls();
     test_file_func_names();
+
+    // Complexity tests
+    test_complexity_scores();
+    test_complexity_vm_binding();
 
     println("==============================");
     print(int_to_str(test_pass));

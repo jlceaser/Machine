@@ -486,6 +486,70 @@ fn ana_max_func_name() -> string {
     return max_name;
 }
 
+// ── Complexity scoring ───────────────────────────────
+// Each function gets a complexity score (0-100) based on:
+//   - Line count (more lines = more complex)
+//   - Call count (more calls = more connected)
+//   - Parameter count (more params = wider interface)
+//
+// The score is intentionally APPROXIMATE — stored with confidence
+// that reflects how reliable the metric is. This is Machine's
+// nature: even analysis results carry uncertainty.
+
+fn ana_func_complexity(idx: i32) -> i32 {
+    if idx < 0 || idx >= ana_fn_count { return 0; }
+
+    let lines: i32 = ana_func_lines(idx);
+    let calls: i32 = ana_func_call_count(idx);
+    let params: i32 = ana_func_params(idx);
+
+    // Line score: 1-line = 5, 10 lines = 20, 50 = 50, 100+ = 70
+    var line_score: i32 = lines * 7 / 10;
+    if line_score > 70 { line_score = 70; }
+    if line_score < 5 { line_score = 5; }
+
+    // Call score: 0 calls = 0, 5 = 10, 20+ = 20
+    var call_score: i32 = calls;
+    if call_score > 20 { call_score = 20; }
+
+    // Param score: 0 = 0, 2 = 5, 4+ = 10
+    var param_score: i32 = params * 5 / 2;
+    if param_score > 10 { param_score = 10; }
+
+    var total: i32 = line_score + call_score + param_score;
+    if total > 100 { total = 100; }
+    return total;
+}
+
+// Confidence of complexity score decreases for very small or very large functions
+// (hard to judge 1-liners as "simple" or 500-line monsters)
+fn ana_func_complexity_conf(idx: i32) -> i32 {
+    if idx < 0 || idx >= ana_fn_count { return 0; }
+    let lines: i32 = ana_func_lines(idx);
+    // 1-line: 60% confident (could be wrapper or constant)
+    // 5-50 lines: 90% confident (clear picture)
+    // 100+: 75% confident (hard to assess without deeper analysis)
+    if lines <= 1 { return 60; }
+    if lines <= 5 { return 80; }
+    if lines <= 50 { return 90; }
+    if lines <= 100 { return 80; }
+    return 75;
+}
+
+// Populate VM with complexity as approximate values
+fn ana_populate_complexity() {
+    let tick: i32 = vm_get_tick();
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        let name: string = ana_func_name(i);
+        let key: string = str_concat("fn.", str_concat(name, ".complexity"));
+        let score: i32 = ana_func_complexity(i);
+        let conf: i32 = ana_func_complexity_conf(i);
+        env_bind(key, val_approx(score, conf), tick, "analyze");
+        i = i + 1;
+    }
+}
+
 // ── Cross-file dependency analysis ──────────────────
 // Recursively follows `use` directives and builds a project-wide view.
 //

@@ -167,6 +167,7 @@ fn show_help() {
     println("    stats                  Show code metrics");
     println("    project <file.m>       Analyze file + all dependencies");
     println("    where <name>           Find which file defines a function");
+    println("    complexity [N]         Show N most complex functions");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
     println("  Approximate: bind x ~ 100  (value with uncertainty)");
@@ -490,8 +491,9 @@ fn cmd_analyze(args: string) {
         return;
     }
 
-    // Populate VM with analysis bindings
+    // Populate VM with analysis bindings + complexity scores
     ana_populate_vm();
+    ana_populate_complexity();
 
     // Show summary
     println("");
@@ -791,6 +793,73 @@ fn cmd_where(args: string) {
     print(name);
     print(" is defined in ");
     println(file);
+}
+
+fn cmd_complexity(args: string) {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let trimmed: string = str_trim(args);
+    var n: i32 = 10;
+    if len(trimmed) > 0 && is_number(trimmed) {
+        n = str_to_int(trimmed);
+        if n <= 0 { n = 10; }
+    }
+    if n > ana_get_func_count() {
+        n = ana_get_func_count();
+    }
+
+    print("  Top ");
+    print(int_to_str(n));
+    println(" most complex functions:");
+
+    // Selection sort by complexity score
+    var used: i32 = array_new(0);
+    var ui: i32 = 0;
+    while ui < ana_get_func_count() {
+        array_push(used, 0);
+        ui = ui + 1;
+    }
+
+    var rank: i32 = 0;
+    while rank < n {
+        var best_idx: i32 = 0 - 1;
+        var best_score: i32 = 0 - 1;
+        var i: i32 = 0;
+        while i < ana_get_func_count() {
+            if array_get(used, i) == 0 {
+                let s: i32 = ana_func_complexity(i);
+                if s > best_score {
+                    best_score = s;
+                    best_idx = i;
+                }
+            }
+            i = i + 1;
+        }
+        if best_idx < 0 { rank = n; }
+        else {
+            array_set(used, best_idx, 1);
+            let conf: i32 = ana_func_complexity_conf(best_idx);
+            print("    ");
+            print(int_to_str(rank + 1));
+            print(". ");
+            print(ana_func_name(best_idx));
+            print("  ~");
+            print(int_to_str(best_score));
+            print(" (conf:");
+            print(int_to_str(conf));
+            print("%)  ");
+            print(int_to_str(ana_func_lines(best_idx)));
+            print("L ");
+            print(int_to_str(ana_func_call_count(best_idx)));
+            print("calls ");
+            print(int_to_str(ana_func_params(best_idx)));
+            println("params");
+            rank = rank + 1;
+        }
+    }
 }
 
 fn cmd_search(args: string) {
@@ -1296,6 +1365,9 @@ fn main() -> i32 {
             cmd_project(substr(line, 8, len(line) - 8));
         } else if str_starts_with(line, "where ") {
             cmd_where(substr(line, 6, len(line) - 6));
+        } else if str_eq(line, "complexity") || str_starts_with(line, "complexity ") {
+            if len(line) > 11 { cmd_complexity(substr(line, 11, len(line) - 11)); }
+            else { cmd_complexity(""); }
         } else if str_starts_with(line, "bind ") {
             cmd_bind(substr(line, 5, len(line) - 5));
         } else if str_starts_with(line, "load ") {

@@ -9,3 +9,4 @@ compile_commands.json
 CMakeUserPresets.json
 .claude/
 .machine_state
+_test_prog.masm
