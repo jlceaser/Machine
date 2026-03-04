@@ -85,9 +85,9 @@ A reasoning engine built on Machine VM primitives: temporal memory, uncertainty,
 | Machine VM | **working** | 89/89 |
 | Machine assembler | **working** | 27/27 |
 | Machine REPL | **working** | Interactive shell + expression eval |
-| Code analyzer | **working** | 112/112 |
+| Code analyzer | **working** | 125/125 |
 
-**Total: 291 tests passing across 4 test suites.**
+**Total: 304 tests passing across 4 test suites.**
 
 ## Phase 3: Machine Reads Code
 
@@ -162,6 +162,29 @@ machine> complexity 3
   1. vm_exec   ~95 (conf:75%)     411L  72 calls
   2. vm_deserialize  ~90 (conf:75%)  132L  21 calls
   3. vm_serialize  ~49 (conf:90%)   42L  14 calls
+```
+
+Code intelligence — Machine forms opinions:
+```
+machine> health
+  Health: 85/100 (Grade A)  conf:80%
+  Size distribution:
+    small (1-5):    53 (55%)
+    medium (6-20):  27 (28%)
+    large (21-50):  9 (9%)
+    huge (50+):     6 (6%)
+  Findings:
+    6 huge functions (largest: vm_exec 411L)
+    12 unused functions (12%)
+
+machine> hotspots 3
+  1. sp_get         8 callers
+  2. val_nil        7 callers
+  3. env_find       6 callers
+
+machine> unused
+  12 functions with no callers:
+    vm_snapshot, vm_rollback, vm_serialize ...
 ```
 
 ## Self-Hosting Proof
@@ -243,7 +266,7 @@ examples/
   machine_asm.m         Text assembler for VM (27/27 tests)
   machine_repl.m        Interactive temporal computing shell
   machine_analyze.m     M + C source code analyzer (Phase C)
-  machine_analyze_test.m  Analyzer tests (112/112)
+  machine_analyze_test.m  Analyzer tests (125/125)
   c_lexer.m             C tokenizer written in M (13/13 tests)
   c_parser.m            C parser + translator written in M (28/28 tests)
   self_interp.m         M interpreter written in M (27/27 tests)
@@ -263,12 +286,13 @@ include/              Headers
 - [x] Machine VM — temporal computation engine (89/89 tests)
 - [x] Machine assembler — text-to-bytecode (27/27 tests)
 - [x] Machine REPL — interactive temporal computing shell
-- [x] Code analyzer — M + C file analysis (112/112 tests)
+- [x] Code analyzer — M + C file analysis (125/125 tests)
 - [x] Cross-file analysis in REPL (dependencies, where, project)
 - [x] C file analysis via temporal VM (C structure extraction)
 - [x] Diff/change detection (new/removed/changed functions)
 - [x] Complexity scoring with uncertainty
 - [x] C vs M structural comparison
+- [x] Code intelligence (health scoring, dead code, hotspots)
 - [ ] Linux transition
 
 ## License
