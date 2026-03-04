@@ -165,6 +165,8 @@ fn show_help() {
     println("    deps                   Show dependency tree (use directives)");
     println("    top [N]                Show N largest functions (default 10)");
     println("    stats                  Show code metrics");
+    println("    project <file.m>       Analyze file + all dependencies");
+    println("    where <name>           Find which file defines a function");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
     println("  Approximate: bind x ~ 100  (value with uncertainty)");
@@ -720,6 +722,77 @@ fn cmd_stats() {
     }
 }
 
+fn cmd_project(args: string) {
+    let path: string = str_trim(args);
+    if len(path) == 0 {
+        println("  Error: use 'project <file.m>'");
+        return;
+    }
+
+    ana_multi_init();
+    let n: i32 = ana_resolve_deps(path);
+    if n < 0 {
+        print("  Error: could not read '");
+        print(path);
+        println("'");
+        return;
+    }
+
+    println("");
+    print("  Project: ");
+    println(path);
+    print("  Files: ");
+    println(int_to_str(ana_all_file_count));
+    print("  Total functions: ");
+    println(int_to_str(ana_all_func_total));
+    println("");
+
+    var i: i32 = 0;
+    while i < ana_all_file_count {
+        print("    ");
+        print(ana_all_file_path(i));
+        print("  (");
+        print(int_to_str(ana_all_file_func_count(i)));
+        println(" funcs)");
+        i = i + 1;
+    }
+
+    // Populate VM with project-level bindings
+    let tick: i32 = vm_get_tick();
+    env_bind("_project", val_str(path), tick, "project");
+    env_bind("_project_files", val_i32(ana_all_file_count), tick, "project");
+    env_bind("_project_funcs", val_i32(ana_all_func_total), tick, "project");
+
+    println("");
+    println("  Use 'where <func>' to find which file defines a function.");
+}
+
+fn cmd_where(args: string) {
+    let name: string = str_trim(args);
+    if len(name) == 0 {
+        println("  Error: use 'where <function_name>'");
+        return;
+    }
+
+    if ana_all_file_count == 0 {
+        println("  No project loaded. Use 'project <file.m>' first.");
+        return;
+    }
+
+    let file: string = ana_who_defines(name);
+    if len(file) == 0 {
+        print("  '");
+        print(name);
+        println("' not found in any analyzed file.");
+        return;
+    }
+
+    print("  ");
+    print(name);
+    print(" is defined in ");
+    println(file);
+}
+
 fn cmd_search(args: string) {
     let pattern: string = str_trim(args);
     if len(pattern) == 0 {
@@ -1219,6 +1292,10 @@ fn main() -> i32 {
         } else if str_eq(line, "top") || str_starts_with(line, "top ") {
             if len(line) > 4 { cmd_top(substr(line, 4, len(line) - 4)); }
             else { cmd_top(""); }
+        } else if str_starts_with(line, "project ") {
+            cmd_project(substr(line, 8, len(line) - 8));
+        } else if str_starts_with(line, "where ") {
+            cmd_where(substr(line, 6, len(line) - 6));
         } else if str_starts_with(line, "bind ") {
             cmd_bind(substr(line, 5, len(line) - 5));
         } else if str_starts_with(line, "load ") {
