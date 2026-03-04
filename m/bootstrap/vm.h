@@ -29,8 +29,9 @@ typedef struct {
     int frame_count;
 
     /* Output capture for testing */
-    char output[4096];
+    char *output;
     int output_len;
+    int output_cap;
 
     /* Error state */
     int had_error;

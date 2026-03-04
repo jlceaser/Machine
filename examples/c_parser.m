@@ -17,10 +17,7 @@ use "c_lexer.m";
 
 // ── String helpers (not VM built-ins) ───────────────
 
-// M bytecode compiler doesn't process escape sequences in strings.
-// Use these helpers for special characters.
-fn NL() -> string { return char_to_str(10); }
-fn QQ() -> string { return char_to_str(34); }  // double quote
+// String helpers not available as VM built-ins
 
 fn str_starts_with(s: string, prefix: string) -> bool {
     if len(prefix) > len(s) { return false; }
@@ -1806,7 +1803,7 @@ fn cp_gen_m_expr(node: i32) -> string {
         return str_concat("0 /* '", str_concat(cv, "' */"));
     }
     if k == CNK_EXPR_STR() {
-        return str_concat(QQ(), str_concat(cnn(node), QQ()));
+        return str_concat("\"", str_concat(cnn(node), "\""));
     }
     if k == CNK_EXPR_NULL() { return "0 /* NULL */"; }
     if k == CNK_EXPR_IDENT() { return cnn(node); }
@@ -1908,7 +1905,7 @@ fn cp_gen_m_expr(node: i32) -> string {
 fn cp_gen_m_stmt(node: i32, indent: string) -> string {
     if node < 0 { return ""; }
     let k: i32 = cnk(node);
-    let nl: string = NL();
+    let nl: string = "\n";
     let indent2: string = str_concat(indent, "    ");
 
     if k == CNK_STMT_RETURN() {
@@ -1936,7 +1933,7 @@ fn cp_gen_m_stmt(node: i32, indent: string) -> string {
         }
         // Default initialization
         if str_eq(vtype, "string") {
-            return str_concat(indent, str_concat("var ", str_concat(vname, str_concat(": string = ", str_concat(QQ(), str_concat(QQ(), str_concat(";", nl)))))));
+            return str_concat(indent, str_concat("var ", str_concat(vname, str_concat(": string = \"\";", nl))));
         }
         if str_eq(vtype, "bool") {
             return str_concat(indent, str_concat("var ", str_concat(vname, str_concat(": bool = false;", nl))));
@@ -2077,7 +2074,7 @@ fn cp_gen_m_stmts(block: i32, indent: string) -> string {
 // Generate M function with translated body
 fn cp_gen_m_func(node: i32) -> string {
     let sig: string = cp_gen_m_func_sig(node);
-    let nl: string = NL();
+    let nl: string = "\n";
     let body_node: i32 = cnd3(node);
 
     var body: string = "";
@@ -2087,7 +2084,7 @@ fn cp_gen_m_func(node: i32) -> string {
         // Fallback: stub
         let m_ret: string = cp_c_type_to_m(cnt(node));
         if str_eq(m_ret, "string") {
-            body = str_concat("    return ", str_concat(QQ(), str_concat(QQ(), str_concat(";", nl))));
+            body = str_concat("    return \"\";", nl);
         } else if str_eq(m_ret, "bool") {
             body = str_concat("    return false;", nl);
         } else {
@@ -2102,7 +2099,7 @@ fn cp_gen_m_func(node: i32) -> string {
 fn cp_gen_m_translation(prog: i32) -> string {
     let total: i32 = cnd2(prog);
     let start: i32 = cnd1(prog);
-    let nl: string = NL();
+    let nl: string = "\n";
     var result: string = str_concat("// Auto-translated from C by Machine", nl);
     result = str_concat(result, str_concat("// Phase 2: M reads C, writes M", str_concat(nl, nl)));
 
@@ -2151,6 +2148,240 @@ fn cp_gen_m_translation(prog: i32) -> string {
     }
 
     return result;
+}
+
+// ── Print-based translation (streaming, no memory accumulation) ──
+
+fn cp_print_m_stmt(node: i32, indent: string) -> i32;
+fn cp_print_m_stmts(block: i32, indent: string) -> i32;
+
+fn cp_print_m_stmt(node: i32, indent: string) -> i32 {
+    if node < 0 { return 0; }
+    let k: i32 = cnk(node);
+    let indent2: string = str_concat(indent, "    ");
+
+    if k == CNK_STMT_RETURN() {
+        if cnd1(node) >= 0 {
+            println(str_concat(indent, str_concat("return ", str_concat(cp_gen_m_expr(cnd1(node)), ";"))));
+        } else {
+            println(str_concat(indent, "return 0;"));
+        }
+        return 0;
+    }
+
+    if k == CNK_STMT_EXPR() {
+        if cnd1(node) < 0 { return 0; }
+        println(str_concat(indent, str_concat(cp_gen_m_expr(cnd1(node)), ";")));
+        return 0;
+    }
+
+    if k == CNK_STMT_VAR() {
+        let vname: string = cnn(node);
+        let vtype: string = cp_c_type_to_m(cnt(node));
+        if cnd1(node) >= 0 {
+            println(str_concat(indent, str_concat("var ", str_concat(vname, str_concat(": ", str_concat(vtype, str_concat(" = ", str_concat(cp_gen_m_expr(cnd1(node)), ";"))))))));
+        } else if str_eq(vtype, "string") {
+            println(str_concat(indent, str_concat("var ", str_concat(vname, ": string = \"\";"))));
+        } else if str_eq(vtype, "bool") {
+            println(str_concat(indent, str_concat("var ", str_concat(vname, ": bool = false;"))));
+        } else {
+            println(str_concat(indent, str_concat("var ", str_concat(vname, ": i32 = 0;"))));
+        }
+        return 0;
+    }
+
+    if k == CNK_STMT_IF() {
+        println(str_concat(indent, str_concat("if ", str_concat(cp_gen_m_expr(cnd1(node)), " {"))));
+        if cnk(cnd2(node)) == CNK_STMT_BLOCK() {
+            cp_print_m_stmts(cnd2(node), indent2);
+        } else {
+            cp_print_m_stmt(cnd2(node), indent2);
+        }
+        if cnd3(node) >= 0 {
+            if cnk(cnd3(node)) == CNK_STMT_IF() {
+                print(str_concat(indent, "} else "));
+                cp_print_m_stmt(cnd3(node), indent);
+                return 0;
+            }
+            println(str_concat(indent, "} else {"));
+            if cnk(cnd3(node)) == CNK_STMT_BLOCK() {
+                cp_print_m_stmts(cnd3(node), indent2);
+            } else {
+                cp_print_m_stmt(cnd3(node), indent2);
+            }
+        }
+        println(str_concat(indent, "}"));
+        return 0;
+    }
+
+    if k == CNK_STMT_WHILE() {
+        println(str_concat(indent, str_concat("while ", str_concat(cp_gen_m_expr(cnd1(node)), " {"))));
+        if cnk(cnd2(node)) == CNK_STMT_BLOCK() {
+            cp_print_m_stmts(cnd2(node), indent2);
+        } else {
+            cp_print_m_stmt(cnd2(node), indent2);
+        }
+        println(str_concat(indent, "}"));
+        return 0;
+    }
+
+    if k == CNK_STMT_FOR() {
+        let fc_start: i32 = cnd1(node);
+        if fc_start >= 0 {
+            let init_n: i32 = cn_child(fc_start, 0);
+            let cond_n: i32 = cn_child(fc_start, 1);
+            let step_n: i32 = cn_child(fc_start, 2);
+            let body_n: i32 = cn_child(fc_start, 3);
+            if init_n >= 0 {
+                if cnk(init_n) == CNK_STMT_VAR() {
+                    cp_print_m_stmt(init_n, indent);
+                } else {
+                    println(str_concat(indent, str_concat(cp_gen_m_expr(init_n), ";")));
+                }
+            }
+            var cond_s: string = "true";
+            if cond_n >= 0 { cond_s = cp_gen_m_expr(cond_n); }
+            println(str_concat(indent, str_concat("while ", str_concat(cond_s, " {"))));
+            if cnk(body_n) == CNK_STMT_BLOCK() {
+                cp_print_m_stmts(body_n, indent2);
+            } else {
+                cp_print_m_stmt(body_n, indent2);
+            }
+            if step_n >= 0 {
+                println(str_concat(indent2, str_concat(cp_gen_m_expr(step_n), ";")));
+            }
+            println(str_concat(indent, "}"));
+            return 0;
+        }
+        println(str_concat(indent, "// for loop (unparsed)"));
+        return 0;
+    }
+
+    if k == CNK_STMT_BREAK() {
+        println(str_concat(indent, "// break;"));
+        return 0;
+    }
+    if k == CNK_STMT_CONTINUE() {
+        println(str_concat(indent, "// continue;"));
+        return 0;
+    }
+
+    if k == CNK_STMT_SWITCH() {
+        println(str_concat(indent, str_concat("// switch (", str_concat(cp_gen_m_expr(cnd1(node)), ") {"))));
+        var ci: i32 = 0;
+        while ci < cnd3(node) {
+            let case_n: i32 = cn_child(cnd2(node), ci);
+            if cnd1(case_n) >= 0 {
+                println(str_concat(indent, str_concat("// case ", str_concat(cp_gen_m_expr(cnd1(case_n)), ":"))));
+            } else {
+                println(str_concat(indent, "// default:"));
+            }
+            var si: i32 = 0;
+            while si < cnd3(case_n) {
+                let s: i32 = cn_child(cnd2(case_n), si);
+                cp_print_m_stmt(s, indent2);
+                si = si + 1;
+            }
+            ci = ci + 1;
+        }
+        println(str_concat(indent, "// }"));
+        return 0;
+    }
+
+    if k == CNK_STMT_BLOCK() {
+        cp_print_m_stmts(node, indent);
+        return 0;
+    }
+
+    println(str_concat(indent, str_concat("// unknown stmt kind ", int_to_str(k))));
+    return 0;
+}
+
+fn cp_print_m_stmts(block: i32, indent: string) -> i32 {
+    let count: i32 = cnd2(block);
+    let start: i32 = cnd1(block);
+    var i: i32 = 0;
+    while i < count {
+        cp_print_m_stmt(cn_child(start, i), indent);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn cp_print_m_func(node: i32) -> i32 {
+    let sig: string = cp_gen_m_func_sig(node);
+    let body_node: i32 = cnd3(node);
+    println(str_concat(sig, " {"));
+    if body_node > 0 && cnk(body_node) == CNK_STMT_BLOCK() {
+        cp_print_m_stmts(body_node, "    ");
+    } else {
+        let m_ret: string = cp_c_type_to_m(cnt(node));
+        if str_eq(m_ret, "string") {
+            println("    return \"\";");
+        } else if str_eq(m_ret, "bool") {
+            println("    return false;");
+        } else {
+            println("    return 0;");
+        }
+    }
+    println("}");
+    return 0;
+}
+
+// Streaming translation — prints directly, no huge string accumulation
+fn cp_print_m_translation(prog: i32) -> i32 {
+    let total: i32 = cnd2(prog);
+    let start: i32 = cnd1(prog);
+    println("// Auto-translated from C by Machine");
+    println("// Phase 2: M reads C, writes M");
+    println("");
+
+    // First pass: struct comments
+    var i: i32 = 0;
+    while i < total {
+        let node: i32 = cn_child(start, i);
+        if cnk(node) == CNK_STRUCT_DEF() {
+            let sname: string = cnn(node);
+            let fstart: i32 = cnd1(node);
+            let fcount: i32 = cnd2(node);
+            println(str_concat("// struct ", str_concat(sname, " {")));
+            var j: i32 = 0;
+            while j < fcount {
+                let f: i32 = cn_child(fstart, j);
+                println(str_concat("//     ", str_concat(cnt(f), str_concat(" ", str_concat(cnn(f), ";")))));
+                j = j + 1;
+            }
+            println("// }");
+            println("");
+        }
+        i = i + 1;
+    }
+
+    // Second pass: function declarations
+    i = 0;
+    while i < total {
+        let node2: i32 = cn_child(start, i);
+        if cnk(node2) == CNK_FUNC_DECL() {
+            println(str_concat(cp_gen_m_func_sig(node2), ";"));
+        }
+        i = i + 1;
+    }
+    if cp_count_func_decls(prog) > 0 {
+        println("");
+    }
+
+    // Third pass: function definitions (fully streaming)
+    i = 0;
+    while i < total {
+        let node3: i32 = cn_child(start, i);
+        if cnk(node3) == CNK_FUNC_DEF() {
+            cp_print_m_func(node3);
+            println("");
+        }
+        i = i + 1;
+    }
+
+    return 0;
 }
 
 // ── Tests ───────────────────────────────────────────
@@ -2702,7 +2933,7 @@ fn main() -> i32 {
         let path: string = argv(1);
         let prog: i32 = cp_parse_file(path);
         if prog >= 0 {
-            print(cp_gen_m_translation(prog));
+            cp_print_m_translation(prog);
         }
         return 0;
     }

@@ -75,6 +75,7 @@ int is_digit(int);
 int is_alpha(int);
 int is_alnum(int);
 int is_space(int);
+const char* process_escapes(const char*);
 int TK_EOF(void);
 int TK_IDENT(void);
 int TK_NUM(void);
@@ -369,6 +370,47 @@ int is_alnum(int c) {
 
 int is_space(int c) {
     return ((((c == 32) || (c == 10)) || (c == 13)) || (c == 9));
+}
+
+const char* process_escapes(const char* s) {
+    const char* result = "";
+    int i = 0;
+    while ((i < (int)strlen(s))) {
+        if ((((int)s[i] == 92) && ((i + 1) < (int)strlen(s)))) {
+            int next = (int)s[(i + 1)];
+            if ((next == 110)) {
+                result = m_str_concat(result, m_char_to_str(10));
+            } else {
+                if ((next == 116)) {
+                    result = m_str_concat(result, m_char_to_str(9));
+                } else {
+                    if ((next == 114)) {
+                        result = m_str_concat(result, m_char_to_str(13));
+                    } else {
+                        if ((next == 92)) {
+                            result = m_str_concat(result, m_char_to_str(92));
+                        } else {
+                            if ((next == 34)) {
+                                result = m_str_concat(result, m_char_to_str(34));
+                            } else {
+                                if ((next == 48)) {
+                                    result = m_str_concat(result, m_char_to_str(0));
+                                } else {
+                                    result = m_str_concat(result, m_char_to_str(92));
+                                    result = m_str_concat(result, m_char_to_str(next));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 2);
+        } else {
+            result = m_str_concat(result, m_char_to_str((int)s[i]));
+            i = (i + 1);
+        }
+    }
+    return result;
 }
 
 int TK_EOF(void) {
@@ -1650,7 +1692,7 @@ int gen_expr(int idx) {
         return 0;
     }
     if ((kind == NK_STR_LIT())) {
-        int ci = add_str_const(nn(idx));
+        int ci = add_str_const(process_escapes(nn(idx)));
         emit_op_u16(OP_CONST_STRING(), ci);
         return 0;
     }

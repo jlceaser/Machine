@@ -108,12 +108,24 @@ static int is_truthy(Val v) {
 static void vm_output(VM *vm, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    int remaining = (int)sizeof(vm->output) - vm->output_len;
-    if (remaining > 0) {
-        int n = vsnprintf(vm->output + vm->output_len, remaining, fmt, args);
-        if (n > 0) vm->output_len += n;
-    }
+    int remaining = vm->output_cap - vm->output_len;
+    /* Try to format into remaining space */
+    int n = vsnprintf(vm->output + vm->output_len, remaining, fmt, args);
     va_end(args);
+    if (n < 0) return;
+    if (n >= remaining) {
+        /* Grow buffer to fit */
+        int needed = vm->output_len + n + 1;
+        int new_cap = vm->output_cap;
+        while (new_cap < needed) new_cap *= 2;
+        vm->output = tohum_realloc(vm->output, vm->output_cap, new_cap);
+        vm->output_cap = new_cap;
+        /* Re-format into the grown buffer */
+        va_start(args, fmt);
+        vsnprintf(vm->output + vm->output_len, new_cap - vm->output_len, fmt, args);
+        va_end(args);
+    }
+    vm->output_len += n;
 }
 
 /* ── Execution loop ────────────────────────────────── */
@@ -721,6 +733,8 @@ static VMResult run(VM *vm) {
 void vm_init(VM *vm, Module *module) {
     memset(vm, 0, sizeof(VM));
     vm->module = module;
+    vm->output_cap = 8192;
+    vm->output = tohum_alloc(vm->output_cap);
 }
 
 static int find_func(VM *vm, const char *name, int len) {
