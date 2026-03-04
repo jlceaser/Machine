@@ -10,8 +10,8 @@
 
 #include "bytecode.h"
 
-#define VM_STACK_MAX 1024
-#define VM_FRAMES_MAX 64
+#define VM_STACK_MAX 8192
+#define VM_FRAMES_MAX 512
 
 typedef struct {
     Function *function;
