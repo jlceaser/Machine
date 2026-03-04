@@ -178,6 +178,8 @@ fn show_help() {
     println("    unused                 Find functions with no callers");
     println("    hotspots [N]           Show N most-called functions");
     println("    health                 Code health report with score");
+    println("    suggest                Improvement suggestions");
+    println("    coupling [N]           Show N most coupled function pairs");
     println("    self                   Machine analyzes itself");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
@@ -1549,6 +1551,145 @@ fn cmd_health() {
     println("");
 }
 
+fn cmd_suggest() {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let nsug: i32 = ana_suggest();
+    if nsug == 0 {
+        println("  No suggestions — code looks clean.");
+        return;
+    }
+
+    println("");
+    println("  Suggestions");
+    println("  ══════════════════════════════════════");
+
+    // Show high priority first, then medium, then low
+    var priority: i32 = 3;
+    while priority >= 1 {
+        var shown_header: bool = false;
+        var i: i32 = 0;
+        while i < nsug {
+            if ana_sug_priority(i) == priority {
+                if !shown_header {
+                    print("  ");
+                    if priority == 3 { println("[HIGH]"); }
+                    else if priority == 2 { println("[MEDIUM]"); }
+                    else { println("[LOW]"); }
+                    shown_header = true;
+                }
+                print("    ");
+                let stype: string = ana_sug_type(i);
+                if str_eq(stype, "split") { print("SPLIT"); }
+                else if str_eq(stype, "remove") { print("REMOVE"); }
+                else if str_eq(stype, "extract") { print("EXTRACT"); }
+                else if str_eq(stype, "protect") { print("PROTECT"); }
+                else { print(stype); }
+                print(" ");
+                print(ana_sug_target(i));
+                print(" — ");
+                println(ana_sug_reason(i));
+            }
+            i = i + 1;
+        }
+        priority = priority - 1;
+    }
+
+    println("");
+    print("  Total: ");
+    print(int_to_str(nsug));
+    println(" suggestions");
+
+    // Count by priority
+    var high: i32 = 0;
+    var med: i32 = 0;
+    var low: i32 = 0;
+    var j: i32 = 0;
+    while j < nsug {
+        let p: i32 = ana_sug_priority(j);
+        if p == 3 { high = high + 1; }
+        else if p == 2 { med = med + 1; }
+        else { low = low + 1; }
+        j = j + 1;
+    }
+    print("  ");
+    print(int_to_str(high));
+    print(" high, ");
+    print(int_to_str(med));
+    print(" medium, ");
+    print(int_to_str(low));
+    println(" low");
+
+    // Populate VM
+    ana_populate_suggestions();
+    println("  Results bound to VM: load _suggestions, _sug_high, _sug_medium, _sug_low");
+    println("");
+}
+
+fn cmd_coupling(args: string) {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    var n: i32 = 5;
+    let trimmed: string = str_trim(args);
+    if len(trimmed) > 0 {
+        n = str_to_int(trimmed);
+        if n <= 0 { n = 5; }
+    }
+
+    let pairs: i32 = ana_coupled_pairs(n);
+    let npairs: i32 = array_len(pairs) / 3;
+
+    if npairs == 0 {
+        println("  No coupled function pairs found.");
+        return;
+    }
+
+    println("");
+    println("  Coupling Analysis");
+    println("  ══════════════════════════════════════");
+    print("  Top ");
+    print(int_to_str(npairs));
+    println(" coupled pairs:");
+    println("");
+
+    var i: i32 = 0;
+    while i < npairs {
+        let a_idx: i32 = array_get(pairs, i * 3);
+        let b_idx: i32 = array_get(pairs, i * 3 + 1);
+        let score: i32 = array_get(pairs, i * 3 + 2);
+
+        print("  ");
+        print(int_to_str(i + 1));
+        print(". ");
+        print(ana_func_name(a_idx));
+        print(" <-> ");
+        print(ana_func_name(b_idx));
+        print("  (score: ");
+        print(int_to_str(score));
+        print(")");
+
+        // Annotate coupling type
+        if score >= 2 {
+            print("  !! mutual dependency");
+        }
+        println("");
+        i = i + 1;
+    }
+
+    // Bind to VM
+    let tick: i32 = vm_get_tick();
+    env_bind("_coupled_pairs", val_i32(npairs), tick, "coupling");
+    println("");
+    println("  Results bound to VM: load _coupled_pairs");
+    println("");
+}
+
 fn cmd_search(args: string) {
     let pattern: string = str_trim(args);
     if len(pattern) == 0 {
@@ -2064,6 +2205,11 @@ fn main() -> i32 {
             else { cmd_hotspots(""); }
         } else if str_eq(line, "health") {
             cmd_health();
+        } else if str_eq(line, "suggest") {
+            cmd_suggest();
+        } else if str_eq(line, "coupling") || str_starts_with(line, "coupling ") {
+            if len(line) > 9 { cmd_coupling(substr(line, 9, len(line) - 9)); }
+            else { cmd_coupling(""); }
         } else if str_starts_with(line, "compare ") {
             cmd_compare(substr(line, 8, len(line) - 8));
         } else if str_eq(line, "self") {

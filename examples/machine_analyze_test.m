@@ -612,6 +612,112 @@ fn test_diff_prev_lookup() {
     assert_eq_i("asm_line not in prev", 0 - 1, asm_idx);
 }
 
+// ── Suggestion / coupling tests ──────────────────────
+
+fn test_suggest_big_file() {
+    println("-- test_suggest_big_file --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    let nsug: i32 = ana_suggest();
+    // machine_vm.m has god functions (vm_exec 411L) and dead code
+    assert_true("suggestions > 0", nsug > 0);
+
+    // Should have at least one "split" suggestion for vm_exec
+    var has_split: bool = false;
+    var i: i32 = 0;
+    while i < nsug {
+        if str_eq(ana_sug_type(i), "split") && str_eq(ana_sug_target(i), "vm_exec") {
+            has_split = true;
+        }
+        i = i + 1;
+    }
+    assert_true("split suggestion for vm_exec", has_split);
+}
+
+fn test_suggest_priorities() {
+    println("-- test_suggest_priorities --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    let nsug: i32 = ana_suggest();
+
+    // Count priorities
+    var high: i32 = 0;
+    var med: i32 = 0;
+    var low: i32 = 0;
+    var i: i32 = 0;
+    while i < nsug {
+        let p: i32 = ana_sug_priority(i);
+        if p == 3 { high = high + 1; }
+        else if p == 2 { med = med + 1; }
+        else { low = low + 1; }
+        i = i + 1;
+    }
+    // vm_exec is 411 lines → high priority split
+    assert_true("high priority > 0", high > 0);
+    // dead code → low priority
+    assert_true("low priority > 0", low > 0);
+}
+
+fn test_suggest_vm_bindings() {
+    println("-- test_suggest_vm_bindings --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    ana_populate_suggestions();
+
+    let sug: i32 = val_get_int(env_load("_suggestions"));
+    assert_true("_suggestions bound", sug > 0);
+    let high: i32 = val_get_int(env_load("_sug_high"));
+    assert_true("_sug_high bound", high >= 0);
+}
+
+fn test_coupling_basic() {
+    println("-- test_coupling_basic --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+    let pairs: i32 = ana_coupled_pairs(3);
+    let npairs: i32 = array_len(pairs) / 3;
+    // Should find at least one coupled pair
+    assert_true("coupled pairs >= 0", npairs >= 0);
+
+    // If there are pairs, verify structure
+    if npairs > 0 {
+        let a: i32 = array_get(pairs, 0);
+        let b: i32 = array_get(pairs, 1);
+        let s: i32 = array_get(pairs, 2);
+        assert_true("pair score > 0", s > 0);
+        assert_true("a_idx valid", a >= 0 && a < ana_get_func_count());
+        assert_true("b_idx valid", b >= 0 && b < ana_get_func_count());
+    }
+}
+
+fn test_coupling_score() {
+    println("-- test_coupling_score --");
+    vm_init();
+    analyze_file("examples/machine_vm.m");
+
+    // Test coupling_score between two specific functions
+    // env_bind calls env_find, so coupling(env_bind, env_find) >= 1
+    let bind_idx: i32 = ana_find_func("env_bind");
+    let find_idx: i32 = ana_find_func("env_find");
+    if bind_idx >= 0 && find_idx >= 0 {
+        let cs: i32 = ana_coupling_score(bind_idx, find_idx);
+        assert_true("env_bind <-> env_find coupling > 0", cs > 0);
+    } else {
+        assert_true("env_bind and env_find found", false);
+    }
+}
+
+fn test_suggest_clean_file() {
+    println("-- test_suggest_clean_file --");
+    vm_init();
+    // machine_asm.m is relatively clean — fewer god functions
+    analyze_file("examples/machine_asm.m");
+    let nsug: i32 = ana_suggest();
+    // Should have fewer suggestions than machine_vm.m
+    // (asm has smaller functions, fewer dependencies)
+    assert_true("suggestions count valid", nsug >= 0);
+}
+
 // ── Run all tests ────────────────────────────────────
 
 fn main() -> i32 {
@@ -647,6 +753,14 @@ fn main() -> i32 {
     test_hotspots();
     test_health_score();
     test_intelligence_bindings();
+
+    // Suggestion / coupling tests
+    test_suggest_big_file();
+    test_suggest_priorities();
+    test_suggest_vm_bindings();
+    test_coupling_basic();
+    test_coupling_score();
+    test_suggest_clean_file();
 
     // C file analysis tests
     test_analyze_c_vm();

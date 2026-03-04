@@ -1310,6 +1310,229 @@ fn ana_populate_intelligence() {
     env_bind("_health", val_approx(health, conf), tick, "intelligence");
 }
 
+// ── Code suggestions (Machine reasons about code) ──────────────────
+// Machine forms opinions and suggests improvements.
+// Each suggestion has: type, target (function name), reason, priority (1-3).
+// Priority: 1=low (style), 2=medium (structure), 3=high (risk).
+
+var ana_sug_types: i32 = 0;      // sp indices: "split", "remove", "extract", "rename"
+var ana_sug_targets: i32 = 0;    // sp indices: function/variable names
+var ana_sug_reasons: i32 = 0;    // sp indices: human-readable reason
+var ana_sug_priorities: i32 = 0; // 1, 2, or 3
+var ana_sug_count: i32 = 0;
+
+fn ana_sug_init() {
+    ana_sug_types = array_new(0);
+    ana_sug_targets = array_new(0);
+    ana_sug_reasons = array_new(0);
+    ana_sug_priorities = array_new(0);
+    ana_sug_count = 0;
+}
+
+fn ana_sug_add(stype: string, target: string, reason: string, priority: i32) {
+    array_push(ana_sug_types, sp_store(stype));
+    array_push(ana_sug_targets, sp_store(target));
+    array_push(ana_sug_reasons, sp_store(reason));
+    array_push(ana_sug_priorities, priority);
+    ana_sug_count = ana_sug_count + 1;
+}
+
+fn ana_sug_type(idx: i32) -> string {
+    return sp_get(array_get(ana_sug_types, idx));
+}
+fn ana_sug_target(idx: i32) -> string {
+    return sp_get(array_get(ana_sug_targets, idx));
+}
+fn ana_sug_reason(idx: i32) -> string {
+    return sp_get(array_get(ana_sug_reasons, idx));
+}
+fn ana_sug_priority(idx: i32) -> i32 {
+    return array_get(ana_sug_priorities, idx);
+}
+
+// Generate suggestions based on analysis data.
+// Must be called after analyze_file.
+fn ana_suggest() -> i32 {
+    ana_sug_init();
+    if ana_fn_count == 0 { return 0; }
+
+    var i: i32 = 0;
+
+    // Rule 1: God functions (>100 lines) → suggest splitting
+    i = 0;
+    while i < ana_fn_count {
+        let lines: i32 = ana_func_lines(i);
+        let name: string = ana_func_name(i);
+        if lines > 200 {
+            ana_sug_add("split", name,
+                str_concat("function is ", str_concat(int_to_str(lines), " lines — consider splitting into smaller functions")),
+                3);
+        } else if lines > 100 {
+            ana_sug_add("split", name,
+                str_concat("function is ", str_concat(int_to_str(lines), " lines — getting large")),
+                2);
+        }
+        i = i + 1;
+    }
+
+    // Rule 2: Dead code → suggest removing
+    let dead: i32 = ana_dead_code();
+    let ndead: i32 = array_len(dead);
+    i = 0;
+    while i < ndead {
+        let didx: i32 = array_get(dead, i);
+        let name: string = ana_func_name(didx);
+        ana_sug_add("remove", name, "no callers found — possibly unused", 1);
+        i = i + 1;
+    }
+
+    // Rule 3: High fan-out (function calls too many others) → suggest extracting
+    i = 0;
+    while i < ana_fn_count {
+        let ncalls: i32 = ana_func_call_count(i);
+        let name: string = ana_func_name(i);
+        if ncalls > 30 {
+            ana_sug_add("extract", name,
+                str_concat("calls ", str_concat(int_to_str(ncalls), " functions — high fan-out, consider extracting helper functions")),
+                3);
+        } else if ncalls > 20 {
+            ana_sug_add("extract", name,
+                str_concat("calls ", str_concat(int_to_str(ncalls), " functions — moderate fan-out")),
+                2);
+        }
+        i = i + 1;
+    }
+
+    // Rule 4: Very high fan-in (>10 callers) → mark as critical utility
+    i = 0;
+    while i < ana_fn_count {
+        let name: string = ana_func_name(i);
+        let callers: i32 = ana_caller_count(name);
+        if callers > 10 {
+            ana_sug_add("protect", name,
+                str_concat("called by ", str_concat(int_to_str(callers), " functions — critical utility, changes here have wide impact")),
+                3);
+        }
+        i = i + 1;
+    }
+
+    return ana_sug_count;
+}
+
+// ── Coupling analysis ──────────────────
+// Identify groups of functions that call each other heavily.
+// A "cluster" is a group where members call each other more than outsiders.
+
+// Coupling between two functions: how many times they appear in each other's call lists.
+fn ana_coupling_score(a_idx: i32, b_idx: i32) -> i32 {
+    var score: i32 = 0;
+    let a_name: string = ana_func_name(a_idx);
+    let b_name: string = ana_func_name(b_idx);
+
+    // Check if A calls B
+    let a_calls: i32 = ana_func_call_count(a_idx);
+    var i: i32 = 0;
+    while i < a_calls {
+        if str_eq(ana_func_call_name(a_idx, i), b_name) {
+            score = score + 1;
+        }
+        i = i + 1;
+    }
+
+    // Check if B calls A
+    let b_calls: i32 = ana_func_call_count(b_idx);
+    i = 0;
+    while i < b_calls {
+        if str_eq(ana_func_call_name(b_idx, i), a_name) {
+            score = score + 1;
+        }
+        i = i + 1;
+    }
+
+    return score;
+}
+
+// Find the N most tightly coupled function pairs.
+// Returns array of: [a_idx, b_idx, score, a_idx, b_idx, score, ...]
+fn ana_coupled_pairs(n: i32) -> i32 {
+    var result: i32 = array_new(0);
+    var best_scores: i32 = array_new(0);
+    var best_a: i32 = array_new(0);
+    var best_b: i32 = array_new(0);
+
+    // Compute all pair scores (upper triangle only)
+    var i: i32 = 0;
+    while i < ana_fn_count {
+        var j: i32 = i + 1;
+        while j < ana_fn_count {
+            let s: i32 = ana_coupling_score(i, j);
+            if s > 0 {
+                array_push(best_scores, s);
+                array_push(best_a, i);
+                array_push(best_b, j);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    // Selection sort top N
+    let total: i32 = array_len(best_scores);
+    var used: i32 = array_new(0);
+    i = 0;
+    while i < total {
+        array_push(used, 0);
+        i = i + 1;
+    }
+
+    var rank: i32 = 0;
+    while rank < n && rank < total {
+        var top_idx: i32 = 0 - 1;
+        var top_score: i32 = 0 - 1;
+        i = 0;
+        while i < total {
+            if array_get(used, i) == 0 && array_get(best_scores, i) > top_score {
+                top_score = array_get(best_scores, i);
+                top_idx = i;
+            }
+            i = i + 1;
+        }
+        if top_idx < 0 { rank = n; }
+        else {
+            array_set(used, top_idx, 1);
+            array_push(result, array_get(best_a, top_idx));
+            array_push(result, array_get(best_b, top_idx));
+            array_push(result, array_get(best_scores, top_idx));
+            rank = rank + 1;
+        }
+    }
+
+    return result;
+}
+
+// Populate VM with suggestion bindings
+fn ana_populate_suggestions() {
+    let tick: i32 = vm_get_tick();
+    let nsug: i32 = ana_suggest();
+    env_bind("_suggestions", val_i32(nsug), tick, "suggest");
+
+    // Count by priority
+    var high: i32 = 0;
+    var med: i32 = 0;
+    var low: i32 = 0;
+    var i: i32 = 0;
+    while i < nsug {
+        let p: i32 = ana_sug_priority(i);
+        if p == 3 { high = high + 1; }
+        else if p == 2 { med = med + 1; }
+        else { low = low + 1; }
+        i = i + 1;
+    }
+    env_bind("_sug_high", val_i32(high), tick, "suggest");
+    env_bind("_sug_medium", val_i32(med), tick, "suggest");
+    env_bind("_sug_low", val_i32(low), tick, "suggest");
+}
+
 // ── Cross-file dependency analysis ──────────────────
 // Recursively follows `use` directives and builds a project-wide view.
 //
