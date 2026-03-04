@@ -32,6 +32,7 @@
 
 use "machine_vm.m"
 use "machine_analyze.m"
+use "machine_mind.m"
 
 // ── String helpers ───────────────────────────────────
 
@@ -186,6 +187,11 @@ fn show_help() {
     println("    suggest                Improvement suggestions");
     println("    coupling [N]           Show N most coupled function pairs");
     println("    self                   Machine analyzes itself");
+    println("");
+    println("  Mind (autonomous cognition):");
+    println("    think [N]              Run N cycles of autonomous thinking");
+    println("    mind                   Show mind status");
+    println("    seed <file.m>          Add a file to the mind's exploration queue");
     println("");
     println("  Values: integers (42), strings (\"hello\"), booleans (true/false)");
     println("  Approximate: bind x ~ 100  (value with uncertainty)");
@@ -2834,6 +2840,154 @@ fn eval_expression(src: string) {
     }
 }
 
+// ── Mind commands ────────────────────────────────────
+
+fn cmd_think(args: string) {
+    if !mind_initialized {
+        mind_init();
+    }
+
+    var n: i32 = 5;
+    let trimmed: string = str_trim(args);
+    if len(trimmed) > 0 && is_number(trimmed) {
+        n = str_to_int(trimmed);
+        if n < 1 { n = 1; }
+        if n > 100 { n = 100; }
+    }
+
+    // If no files seeded, use current analysis or ask for one
+    if mind_get_file_count() == 0 {
+        if len(ana_get_file()) > 0 {
+            mind_seed(ana_get_file());
+        } else {
+            println("  No files to think about. Use 'analyze <file>' first, or 'seed <file>'.");
+            return;
+        }
+    }
+
+    println("");
+    print("  Machine Mind — ");
+    print(int_to_str(n));
+    println(" cycles");
+    println("  ─────────────────────");
+
+    var i: i32 = 0;
+    while i < n {
+        let prev_cycle: i32 = mind_get_cycle();
+        mind_one_cycle();
+
+        let action: i32 = mind_get_last_action();
+        let target: i32 = mind_get_last_target();
+
+        print("  [");
+        print(int_to_str(mind_get_cycle()));
+        print("] ");
+        print(act_name(action));
+
+        if target >= 0 && target < mind_get_file_count() {
+            print(" ");
+            print(mind_file_path(target));
+        }
+
+        if action == ACT_EXPLORE() || action == ACT_REPREDICT() {
+            if target >= 0 {
+                print("  error:");
+                print(int_to_str(mind_get_error(target)));
+                print("%");
+            }
+        }
+
+        println("");
+
+        if mind_idle_streak >= 2 {
+            println("  (idle — nothing more to explore)");
+            break;
+        }
+
+        i = i + 1;
+    }
+
+    println("");
+    print("  Competence: ~");
+    print(int_to_str(mind_get_competence()));
+    print("% | Files: ");
+    print(int_to_str(mind_count_analyzed()));
+    print("/");
+    print(int_to_str(mind_get_file_count()));
+    print(" | Predictions: ");
+    println(int_to_str(mind_get_total_preds()));
+}
+
+fn cmd_mind() {
+    if !mind_initialized {
+        println("  Mind not active. Use 'think [N]' to start.");
+        return;
+    }
+
+    println("");
+    println("  Machine Mind — Status");
+    println("  ─────────────────────");
+    print("  Cycle: ");
+    println(int_to_str(mind_get_cycle()));
+    print("  Files known: ");
+    println(int_to_str(mind_get_file_count()));
+    print("  Files analyzed: ");
+    println(int_to_str(mind_count_analyzed()));
+    print("  Competence: ~");
+    print(int_to_str(mind_get_competence()));
+    println("%");
+    print("  Avg error: ");
+    print(int_to_str(mind_get_avg_error()));
+    println("%");
+    print("  Predictions: ");
+    println(int_to_str(mind_get_total_preds()));
+
+    // Show per-file status
+    if mind_get_file_count() > 0 {
+        println("");
+        println("  Files:");
+        var i: i32 = 0;
+        while i < mind_get_file_count() {
+            print("    ");
+            if mind_is_analyzed(i) {
+                print("[x] ");
+            } else {
+                print("[ ] ");
+            }
+            print(mind_file_path(i));
+            if mind_is_analyzed(i) {
+                let err: i32 = mind_get_error(i);
+                if err > 0 {
+                    print("  (error:");
+                    print(int_to_str(err));
+                    print("%)");
+                }
+            }
+            println("");
+            i = i + 1;
+        }
+    }
+    println("");
+}
+
+fn cmd_seed(args: string) {
+    let path: string = str_trim(args);
+    if len(path) == 0 {
+        println("  Error: use 'seed <file.m>'");
+        return;
+    }
+    if !mind_initialized {
+        mind_init();
+    }
+    if mind_seed(path) {
+        print("  Seeded: ");
+        println(path);
+    } else {
+        print("  Already known: ");
+        println(path);
+    }
+}
+
 // ── Main REPL loop ───────────────────────────────────
 
 fn main() -> i32 {
@@ -2927,6 +3081,13 @@ fn main() -> i32 {
             cmd_compare(substr(line, 8, len(line) - 8));
         } else if str_eq(line, "self") {
             cmd_self();
+        } else if str_eq(line, "think") || str_starts_with(line, "think ") {
+            if len(line) > 6 { cmd_think(substr(line, 6, len(line) - 6)); }
+            else { cmd_think(""); }
+        } else if str_eq(line, "mind") {
+            cmd_mind();
+        } else if str_starts_with(line, "seed ") {
+            cmd_seed(substr(line, 5, len(line) - 5));
         } else if str_starts_with(line, "bind ") {
             cmd_bind(substr(line, 5, len(line) - 5));
         } else if str_starts_with(line, "load ") {

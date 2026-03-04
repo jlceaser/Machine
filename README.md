@@ -69,9 +69,11 @@ machine> callers env_find
 
 Machine doesn't just read code — it reasons about it. Built on VM primitives: temporal memory, uncertainty, self-reflection.
 
-**Working today:** analyze → health → suggest → explain → audit. Machine classifies functions (constant/utility/core/interface/test), scores risk, detects patterns (dispatcher, accessor, orchestrator), generates improvement suggestions, and produces narrative summaries.
+**Working today:** analyze → health → suggest → explain → audit → **think**. Machine classifies functions, scores risk, detects patterns, generates suggestions — and now runs autonomous cognition cycles.
 
-**Coming:** temporal reasoning across sessions, intent understanding, cross-language knowledge transfer.
+**Inner loop (new):** Machine predicts code properties before analyzing, measures prediction error, and decides what to explore next — without human commands. The `think` command runs N autonomous cycles: predict → perceive → measure → decide → act.
+
+**Coming:** deeper self-model, intent understanding, cross-language knowledge transfer.
 
 ## Current Status
 
@@ -90,8 +92,9 @@ Machine doesn't just read code — it reasons about it. Built on VM primitives: 
 | Machine assembler | **working** | 27/27 |
 | Machine REPL | **working** | Interactive shell + expression eval |
 | Code analyzer | **working** | 147/147 |
+| Machine Mind | **working** | 61/61 |
 
-**Total: 326 tests passing across 4 test suites.**
+**Total: 387 tests passing across 5 test suites.**
 
 ## Phase 3: Machine Reads Code
 
@@ -225,6 +228,38 @@ machine> audit
   VERDICT: GOOD — minor issues, low risk
 ```
 
+### Phase 4: Machine Thinks
+
+Machine can now run autonomous cognition cycles — predicting, perceiving, measuring, and deciding without human commands:
+
+```
+machine> seed examples/machine_vm.m
+machine> seed examples/machine_asm.m
+machine> seed examples/machine_analyze.m
+machine> think 5
+
+  Machine Mind — 5 cycles
+  ─────────────────────
+  [1] explore examples/machine_vm.m  error:18%
+  [2] explore examples/machine_asm.m  error:73%
+  [3] explore examples/machine_analyze.m  error:1%
+  [4] repredict examples/machine_asm.m  error:52%
+  [5] consolidate
+
+  Competence: ~59% | Files: 3/3 | Predictions: 4
+
+machine> history mind.competence
+  mind.competence timeline (6 entries):
+    [0] ~50 (conf:30%)  (mind_init)
+    [1] ~82 (conf:65%)  (measure)
+    [2] ~55 (conf:70%)  (measure)
+    [3] ~70 (conf:75%)  (measure)
+    [4] ~59 (conf:80%)  (measure)
+    [5] ~59 (conf:85%)  (measure)  <- current
+```
+
+The inner loop: predict code properties → analyze → measure prediction error → learn → decide next action. Auto-discovers dependencies through `use` directives. Predictions improve as the model accumulates experience.
+
 ## Self-Hosting Proof
 
 ```
@@ -303,6 +338,8 @@ examples/
   machine_vm_test.m     VM test suite (89/89 tests)
   machine_asm.m         Text assembler for VM (27/27 tests)
   machine_repl.m        Interactive temporal computing shell
+  machine_mind.m        Autonomous cognition — inner loop (Phase 4)
+  machine_mind_test.m   Mind tests (61/61)
   machine_analyze.m     M + C source code analyzer (Phase C)
   machine_analyze_test.m  Analyzer tests (147/147)
   c_lexer.m             C tokenizer written in M (13/13 tests)
@@ -332,6 +369,9 @@ include/              Headers
 - [x] C vs M structural comparison
 - [x] Code intelligence (health scoring, dead code, hotspots)
 - [x] Code reasoning (suggest, focus, summary, coupling, explain, audit, map)
+- [x] Inner loop — autonomous cognition cycles (predict, perceive, measure, decide)
+- [ ] Self-model deepening (the mind inspects its own prediction patterns)
+- [ ] Cross-language learning (Python, Rust file analysis)
 - [ ] Linux transition
 
 ## License
