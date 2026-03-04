@@ -178,6 +178,7 @@ fn show_help() {
     println("    unused                 Find functions with no callers");
     println("    hotspots [N]           Show N most-called functions");
     println("    health                 Code health report with score");
+    println("    map                    Dependency map (architecture overview)");
     println("    explain <name>         Machine explains what a function does");
     println("    summary                Narrative summary of analyzed code");
     println("    focus <name>           Deep analysis of a single function");
@@ -1696,6 +1697,157 @@ fn cmd_summary() {
     println("");
 }
 
+fn cmd_map() {
+    if ana_get_func_count() == 0 {
+        println("  No analysis loaded. Use 'analyze <file.m>' first.");
+        return;
+    }
+
+    let nfuncs: i32 = ana_get_func_count();
+
+    println("");
+    println("  Dependency Map");
+    println("  ══════════════════════════════════════");
+    println("");
+
+    // Group functions by role
+    // Print entry points (interfaces) first — they're the "top" of the architecture
+    var has_iface: bool = false;
+    var i: i32 = 0;
+    while i < nfuncs {
+        if ana_func_role(i) == 4 {
+            if !has_iface {
+                println("  Entry Points:");
+                has_iface = true;
+            }
+            print("    [");
+            print(ana_func_name(i));
+            print("]");
+            let calls: i32 = ana_func_call_count(i);
+            if calls > 0 {
+                print(" -> ");
+                var j: i32 = 0;
+                var shown: i32 = 0;
+                while j < calls && shown < 5 {
+                    if shown > 0 { print(", "); }
+                    print(ana_func_call_name(i, j));
+                    shown = shown + 1;
+                    j = j + 1;
+                }
+                if calls > 5 {
+                    print(" +");
+                    print(int_to_str(calls - 5));
+                }
+            }
+            println("");
+        }
+        i = i + 1;
+    }
+    if has_iface { println(""); }
+
+    // Core functions — the spine
+    println("  Core Functions:");
+    i = 0;
+    while i < nfuncs {
+        if ana_func_role(i) == 3 {
+            let name: string = ana_func_name(i);
+            let lines: i32 = ana_func_lines(i);
+            let callers: i32 = ana_caller_count(name);
+            let calls: i32 = ana_func_call_count(i);
+
+            // Draw box proportional to size
+            print("    ");
+            if lines > 100 { print("████ "); }
+            else if lines > 50 { print("███ "); }
+            else if lines > 20 { print("██ "); }
+            else { print("█ "); }
+            print(name);
+            print(" (");
+            print(int_to_str(lines));
+            print("L");
+            if callers > 0 {
+                print(", ");
+                print(int_to_str(callers));
+                print("<-");
+            }
+            if calls > 0 {
+                print(", ");
+                print(int_to_str(calls));
+                print("->");
+            }
+            println(")");
+        }
+        i = i + 1;
+    }
+    println("");
+
+    // Utilities — grouped by caller count
+    var util_widely_used: i32 = 0;  // 5+ callers
+    var util_normal: i32 = 0;        // 1-4 callers
+    i = 0;
+    while i < nfuncs {
+        if ana_func_role(i) == 2 {
+            let cc: i32 = ana_caller_count(ana_func_name(i));
+            if cc >= 5 { util_widely_used = util_widely_used + 1; }
+            else { util_normal = util_normal + 1; }
+        }
+        i = i + 1;
+    }
+
+    print("  Utilities: ");
+    print(int_to_str(util_widely_used));
+    print(" widely used, ");
+    print(int_to_str(util_normal));
+    println(" normal");
+
+    // Show widely-used utilities
+    if util_widely_used > 0 {
+        i = 0;
+        while i < nfuncs {
+            if ana_func_role(i) == 2 {
+                let name: string = ana_func_name(i);
+                let cc: i32 = ana_caller_count(name);
+                if cc >= 5 {
+                    print("    * ");
+                    print(name);
+                    print(" (");
+                    print(int_to_str(cc));
+                    println(" callers)");
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // Constants count
+    var n_const: i32 = 0;
+    i = 0;
+    while i < nfuncs {
+        if ana_func_role(i) == 1 { n_const = n_const + 1; }
+        i = i + 1;
+    }
+    if n_const > 0 {
+        print("  Constants: ");
+        print(int_to_str(n_const));
+        println(" value definitions");
+    }
+
+    // Tests count
+    var n_test: i32 = 0;
+    i = 0;
+    while i < nfuncs {
+        if ana_func_role(i) == 5 { n_test = n_test + 1; }
+        i = i + 1;
+    }
+    if n_test > 0 {
+        print("  Tests: ");
+        print(int_to_str(n_test));
+        println(" test functions");
+    }
+
+    println("");
+}
+
 fn cmd_explain(args: string) {
     let name: string = str_trim(args);
     if len(name) == 0 {
@@ -2602,6 +2754,8 @@ fn main() -> i32 {
             else { cmd_hotspots(""); }
         } else if str_eq(line, "health") {
             cmd_health();
+        } else if str_eq(line, "map") {
+            cmd_map();
         } else if str_starts_with(line, "explain ") {
             cmd_explain(substr(line, 8, len(line) - 8));
         } else if str_eq(line, "summary") {
